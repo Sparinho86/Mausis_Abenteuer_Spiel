@@ -1,0 +1,3267 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>2 Mäuse in Vietnam & Thailand</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            overflow: hidden;
+            touch-action: none;
+            -webkit-touch-callout: none;
+            -webkit-user-select: none;
+            user-select: none;
+        }
+        #gameContainer {
+            position: relative;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 0 40px rgba(255,182,193,0.3);
+            max-width: 100vw;
+            max-height: 100vh;
+        }
+        canvas {
+            display: block;
+            background: #87CEEB;
+            max-width: 100vw;
+            max-height: 100vh;
+            width: 100%;
+            height: auto;
+        }
+        @media (max-width: 900px) {
+            body { padding: 0; }
+            #gameContainer {
+                border-radius: 0;
+                box-shadow: none;
+                width: 100vw;
+                height: 100vh;
+            }
+            canvas {
+                width: 100vw;
+                height: 100vh;
+                object-fit: contain;
+            }
+        }
+        @media (max-aspect-ratio: 3/2) {
+            canvas {
+                width: 100vw;
+                height: auto;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="gameContainer">
+        <canvas id="game" width="900" height="600"></canvas>
+    </div>
+
+<script>
+// ============================================
+// KONFIGURATION - Hier personalisieren!
+// ============================================
+const CONFIG = {
+    birthdayName: "Mausi",
+    birthdayDate: "17.01",
+    gifts: {
+        therme: { title: "Ein Tag in der Therme", subtitle: "Entspannung pur – nur für dich!" },
+        restaurant: { title: "Restaurant deiner Wahl", subtitle: "Du suchst aus – ich lade ein!" },
+        hotel: { title: "Eine Nacht im Hotel", subtitle: "Zusammen – irgendwo Schönes!" }
+    },
+    finalMessage: "Alles Liebe dein Mausi"
+};
+
+// ============================================
+// GAME ENGINE
+// ============================================
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+
+// Game State
+const GameState = {
+    MENU: 'menu',
+    PLAYING_L1: 'playing_l1',
+    POSTCARD: 'postcard',
+    CUTSCENE_L1: 'cutscene_l1',
+    PLAYING_L2: 'playing_l2',
+    CUTSCENE_L2: 'cutscene_l2',
+    FINALE: 'finale',
+    GAME_OVER: 'game_over'
+};
+
+let currentState = GameState.MENU;
+let currentLevel = 1;
+let currentZone = 0;
+
+// Input
+const keys = {};
+window.addEventListener('keydown', e => { keys[e.code] = true; if(['Space','ArrowUp','ArrowDown'].includes(e.code)) e.preventDefault(); });
+window.addEventListener('keyup', e => keys[e.code] = false);
+
+// Mouse
+let mouseX = 0, mouseY = 0, mouseClicked = false;
+canvas.addEventListener('mousemove', e => {
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    mouseX = (e.clientX - rect.left) * scaleX;
+    mouseY = (e.clientY - rect.top) * scaleY;
+});
+canvas.addEventListener('click', () => mouseClicked = true);
+
+// Touch Controls
+let touchLeft = false, touchRight = false, touchJump = false;
+let isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+
+canvas.addEventListener('touchstart', e => {
+    e.preventDefault();
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+
+    for(let touch of e.touches) {
+        const x = (touch.clientX - rect.left) * scaleX;
+        const y = (touch.clientY - rect.top) * scaleY;
+        mouseX = x;
+        mouseY = y;
+        mouseClicked = true;
+
+        // Touch-Button Bereiche (nur während PLAYING states)
+        if(currentState === GameState.PLAYING_L1 || currentState === GameState.PLAYING_L2) {
+            if(x < 120 && y > canvas.height - 120) touchLeft = true;
+            if(x > 120 && x < 240 && y > canvas.height - 120) touchRight = true;
+            if(x > canvas.width - 120 && y > canvas.height - 120) touchJump = true;
+        }
+    }
+}, { passive: false });
+
+canvas.addEventListener('touchmove', e => {
+    e.preventDefault();
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+
+    touchLeft = false;
+    touchRight = false;
+    touchJump = false;
+
+    for(let touch of e.touches) {
+        const x = (touch.clientX - rect.left) * scaleX;
+        const y = (touch.clientY - rect.top) * scaleY;
+        mouseX = x;
+        mouseY = y;
+
+        if(currentState === GameState.PLAYING_L1 || currentState === GameState.PLAYING_L2) {
+            if(x < 120 && y > canvas.height - 120) touchLeft = true;
+            if(x > 120 && x < 240 && y > canvas.height - 120) touchRight = true;
+            if(x > canvas.width - 120 && y > canvas.height - 120) touchJump = true;
+        }
+    }
+}, { passive: false });
+
+canvas.addEventListener('touchend', e => {
+    e.preventDefault();
+    touchLeft = false;
+    touchRight = false;
+    touchJump = false;
+
+    // Bei keinen aktiven Touches, alle zurücksetzen
+    if(e.touches.length === 0) {
+        touchLeft = false;
+        touchRight = false;
+        touchJump = false;
+    } else {
+        // Prüfe verbleibende Touches
+        const rect = canvas.getBoundingClientRect();
+        const scaleX = canvas.width / rect.width;
+        const scaleY = canvas.height / rect.height;
+        for(let touch of e.touches) {
+            const x = (touch.clientX - rect.left) * scaleX;
+            const y = (touch.clientY - rect.top) * scaleY;
+            if(currentState === GameState.PLAYING_L1 || currentState === GameState.PLAYING_L2) {
+                if(x < 120 && y > canvas.height - 120) touchLeft = true;
+                if(x > 120 && x < 240 && y > canvas.height - 120) touchRight = true;
+                if(x > canvas.width - 120 && y > canvas.height - 120) touchJump = true;
+            }
+        }
+    }
+}, { passive: false });
+
+// ============================================
+// SPIELER
+// ============================================
+const player = {
+    x: 100,
+    y: 400,
+    vx: 0,
+    vy: 0,
+    width: 32,
+    height: 40,
+    speed: 5,
+    jumpForce: -14,
+    gravity: 0.6,
+    grounded: false,
+    coyoteTime: 0,
+    facing: 1,
+    frame: 0,
+    frameTimer: 0,
+    invincible: 0,
+    hasSnorkel: false,
+    hits: 0,
+    maxHits: 5
+};
+
+// Game Over State
+let gameOverTimer = 0;
+
+// Companion (Level 2)
+const companion = {
+    x: 60,
+    y: 400,
+    vx: 0,
+    vy: 0,
+    facing: 1,
+    frame: 0
+};
+
+// ============================================
+// KAMERA
+// ============================================
+const camera = {
+    x: 0,
+    y: 0,
+    targetX: 0,
+    smoothing: 0.1
+};
+
+// ============================================
+// COLLECTIBLES & PROGRESS
+// ============================================
+let cheeseCount = 0;
+const souvenirs = [false, false, false, false, false, false, false]; // 7 Souvenirs
+const goldenGifts = [false, false, false]; // 3 Geschenke
+const souvenirNames = ['Pho', 'Lampion', 'Boot', 'Roller', 'Neon', 'Muschel', 'Kokosnuss'];
+const giftNames = ['Therme', 'Restaurant', 'Hotel'];
+
+// ============================================
+// PARTIKEL SYSTEM
+// ============================================
+let particles = [];
+
+function createParticle(x, y, type) {
+    const colors = {
+        cheese: '#FFD700',
+        heart: '#FF69B4',
+        sparkle: '#FFFFFF',
+        star: '#FFD700',
+        confetti: ['#FF6B6B','#4ECDC4','#FFE66D','#95E1D3','#F38181','#9B59B6','#3498DB']
+    };
+
+    const count = type === 'confetti' ? 35 : (type === 'star' ? 8 : 6);
+
+    for(let i = 0; i < count; i++) {
+        particles.push({
+            x: x,
+            y: y,
+            vx: (Math.random() - 0.5) * (type === 'confetti' ? 10 : 8),
+            vy: (Math.random() - 0.5) * 8 - 4,
+            life: type === 'confetti' ? 80 : 60,
+            color: type === 'confetti' ? colors.confetti[Math.floor(Math.random()*7)] : colors[type],
+            size: type === 'confetti' ? (4 + Math.random() * 4) : (type === 'star' ? 3 : 4),
+            type: type,
+            rotation: Math.random() * Math.PI * 2,
+            rotationSpeed: (Math.random() - 0.5) * 0.2
+        });
+    }
+}
+
+function updateParticles() {
+    particles = particles.filter(p => {
+        p.x += p.vx;
+        p.y += p.vy;
+        p.vy += 0.18;
+        p.vx *= 0.99; // Leichte Reibung
+        p.life--;
+        if(p.rotation !== undefined) {
+            p.rotation += p.rotationSpeed;
+        }
+        return p.life > 0;
+    });
+}
+
+function drawParticles() {
+    particles.forEach(p => {
+        const maxLife = p.type === 'confetti' ? 80 : 60;
+        ctx.globalAlpha = p.life / maxLife;
+        ctx.fillStyle = p.color;
+
+        if(p.type === 'heart') {
+            drawHeart(p.x, p.y, p.size);
+        } else if(p.type === 'star') {
+            ctx.save();
+            ctx.translate(p.x, p.y);
+            ctx.rotate(p.rotation || 0);
+            drawSmallStar(0, 0, p.size);
+            ctx.restore();
+        } else if(p.type === 'confetti') {
+            ctx.save();
+            ctx.translate(p.x, p.y);
+            ctx.rotate(p.rotation || 0);
+            // Verschiedene Konfetti-Formen
+            if(Math.random() > 0.5) {
+                ctx.fillRect(-p.size/2, -p.size/4, p.size, p.size/2);
+            } else {
+                ctx.beginPath();
+                ctx.arc(0, 0, p.size/2, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            ctx.restore();
+        } else {
+            ctx.fillRect(p.x - p.size/2, p.y - p.size/2, p.size, p.size);
+        }
+        ctx.globalAlpha = 1;
+    });
+}
+
+function drawSmallStar(x, y, size) {
+    ctx.beginPath();
+    for(let i = 0; i < 5; i++) {
+        const angle = (i * 4 * Math.PI / 5) - Math.PI / 2;
+        const r = i % 2 === 0 ? size : size / 2;
+        ctx.lineTo(x + Math.cos(angle) * r, y + Math.sin(angle) * r);
+    }
+    ctx.closePath();
+    ctx.fill();
+}
+
+function drawHeart(x, y, size) {
+    ctx.beginPath();
+    ctx.moveTo(x, y + size/4);
+    ctx.bezierCurveTo(x, y, x - size/2, y, x - size/2, y + size/4);
+    ctx.bezierCurveTo(x - size/2, y + size/2, x, y + size*0.75, x, y + size);
+    ctx.bezierCurveTo(x, y + size*0.75, x + size/2, y + size/2, x + size/2, y + size/4);
+    ctx.bezierCurveTo(x + size/2, y, x, y, x, y + size/4);
+    ctx.fill();
+}
+
+// ============================================
+// AUDIO (Simple WebAudio)
+// ============================================
+let audioCtx = null;
+function initAudio() {
+    if(!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+}
+
+function playSound(type) {
+    if(!audioCtx) return;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+
+    const sounds = {
+        jump: { freq: 300, duration: 0.1, type: 'square' },
+        collect: { freq: 600, duration: 0.15, type: 'sine' },
+        special: { freq: 800, duration: 0.3, type: 'sine' },
+        reveal: { freq: 440, duration: 0.5, type: 'triangle' }
+    };
+
+    const s = sounds[type] || sounds.collect;
+    osc.type = s.type;
+    osc.frequency.setValueAtTime(s.freq, audioCtx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(s.freq * 1.5, audioCtx.currentTime + s.duration);
+    gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + s.duration);
+    osc.start();
+    osc.stop(audioCtx.currentTime + s.duration);
+}
+
+// ============================================
+// LEVEL DATEN
+// ============================================
+const ZONE_WIDTH = 1800;
+
+// Zone-Definitionen für Level 1
+const zones_L1 = [
+    { name: "Hanoi", subtitle: "Wo Roller tanzen und Pho dampft!", colors: { bg: '#FF9966', ground: '#8B4513', accent: '#FFD700' }},
+    { name: "Hoi An", subtitle: "Wo Wünsche leuchten!", colors: { bg: '#DDA0DD', ground: '#8B4513', accent: '#FFD700' }},
+    { name: "Mekong", subtitle: "Treiben lassen und genießen!", colors: { bg: '#90EE90', ground: '#228B22', accent: '#4169E1' }},
+    { name: "Saigon", subtitle: "Stadt die niemals schläft!", colors: { bg: '#1a1a2e', ground: '#333', accent: '#FF1493' }},
+    { name: "Thailand", subtitle: "Koh Chang, Koh Mak, Koh Kood!", colors: { bg: '#40E0D0', ground: '#F4A460', accent: '#FFD700' }},
+    { name: "Strandtempel", subtitle: "Das Finale!", colors: { bg: '#FFD700', ground: '#DAA520', accent: '#FFF' }}
+];
+
+// Zone-Definitionen für Level 2 - Schwäbische Alb
+const zones_L2 = [
+    { name: "Reutlingen", subtitle: "Tor zur Schwäbischen Alb!", colors: { bg: '#87CEEB', ground: '#8B7355', accent: '#228B22' }},
+    { name: "Metzingen", subtitle: "Das Outlet-Paradies!", colors: { bg: '#F5DEB3', ground: '#A0522D', accent: '#FF69B4' }},
+    { name: "Tübingen", subtitle: "Stadt der Dichter und Denker!", colors: { bg: '#B8D4E8', ground: '#696969', accent: '#FFD700' }},
+    { name: "Balingen", subtitle: "Zuhause ist es am schönsten!", colors: { bg: '#98FB98', ground: '#8B4513', accent: '#FF6347' }}
+];
+
+// Plattformen generieren
+function generatePlatforms(level, zone) {
+    const platforms = [];
+    const startX = zone * ZONE_WIDTH;
+    const maxZone = level === 1 ? 5 : 3;
+
+    // Boden - in der letzten Zone extra breit machen
+    const groundWidth = (zone === maxZone) ? ZONE_WIDTH + 500 : ZONE_WIDTH;
+    platforms.push({ x: startX, y: 550, w: groundWidth, h: 50, type: 'ground' });
+
+    // Zone-spezifische Plattformen
+    if(level === 1) {
+        // Standard-Plattformen pro Zone
+        const patterns = [
+            // Hanoi - Dächer
+            [{x:200,y:450,w:120},{x:400,y:380,w:100},{x:600,y:320,w:150},{x:850,y:400,w:100},{x:1050,y:350,w:120},{x:1300,y:420,w:100},{x:1500,y:350,w:130}],
+            // Hoi An - Brücken
+            [{x:150,y:400,w:200},{x:450,y:350,w:150,type:'lampion'},{x:700,y:420,w:120},{x:920,y:360,w:150,type:'lampion'},{x:1200,y:400,w:180},{x:1500,y:340,w:150,type:'lampion'}],
+            // Mekong - Boote
+            [{x:200,y:450,w:150,type:'boat'},{x:500,y:420,w:120,type:'boat'},{x:800,y:400,w:140,type:'boat'},{x:1100,y:440,w:130,type:'boat'},{x:1400,y:380,w:160,type:'boat'}],
+            // Saigon - Neon
+            [{x:150,y:420,w:100},{x:350,y:360,w:120},{x:550,y:300,w:100},{x:750,y:380,w:150},{x:1000,y:320,w:120},{x:1250,y:400,w:100},{x:1500,y:340,w:140}],
+            // Thailand - Felsen
+            [{x:200,y:430,w:100},{x:400,y:380,w:80,type:'shell'},{x:600,y:450,w:120},{x:850,y:360,w:100},{x:1100,y:400,w:90,type:'shell'},{x:1350,y:340,w:110},{x:1600,y:420,w:100}],
+            // Finale
+            [{x:300,y:420,w:150},{x:600,y:360,w:200},{x:1000,y:400,w:250},{x:1400,y:350,w:200}]
+        ];
+        const zonePlatforms = patterns[zone] || [];
+        zonePlatforms.forEach(p => {
+            platforms.push({ x: startX + p.x, y: p.y, w: p.w, h: 25, type: p.type || 'normal' });
+        });
+    } else {
+        // Level 2 Plattformen - Schwäbische Alb
+        const patterns = [
+            // Reutlingen - Marktplatz mit Fachwerkhäusern
+            [{x:200,y:420,w:150,type:'fachwerk'},{x:480,y:360,w:130,type:'fachwerk'},{x:780,y:400,w:140},{x:1050,y:340,w:120,type:'fachwerk'},{x:1380,y:380,w:160},{x:1650,y:420,w:130}],
+            // Metzingen - Outlet-Gebäude und Shopping
+            [{x:180,y:430,w:160,type:'outlet'},{x:450,y:370,w:140,type:'outlet'},{x:750,y:320,w:150},{x:1020,y:400,w:130,type:'outlet'},{x:1320,y:350,w:140},{x:1580,y:400,w:150}],
+            // Tübingen - Brücken über den Neckar, Schloss
+            [{x:200,y:400,w:180,type:'bruecke'},{x:520,y:350,w:160,type:'bruecke'},{x:850,y:420,w:140},{x:1150,y:360,w:170,type:'bruecke'},{x:1480,y:390,w:150}],
+            // Balingen - Finale
+            [{x:300,y:420,w:200},{x:650,y:370,w:180},{x:1000,y:400,w:220},{x:1400,y:350,w:200}]
+        ];
+        const zonePlatforms = patterns[zone] || [];
+        zonePlatforms.forEach(p => {
+            platforms.push({ x: startX + p.x, y: p.y, w: p.w, h: 25, type: p.type || 'normal' });
+        });
+    }
+
+    return platforms;
+}
+
+// Collectibles generieren
+function generateCollectibles(level, zone) {
+    const items = [];
+    const startX = zone * ZONE_WIDTH;
+
+    // Käse verteilen
+    for(let i = 0; i < 15; i++) {
+        items.push({
+            x: startX + 100 + i * 110,
+            y: 300 + Math.sin(i) * 100,
+            type: 'cheese',
+            collected: false
+        });
+    }
+
+    // Souvenirs (Level 1)
+    if(level === 1 && zone < 6) {
+        const souvenirPositions = [
+            { x: 850, y: 280 },  // Hanoi - Pho
+            { x: 920, y: 260 },  // Hoi An - Lampion
+            { x: 800, y: 300 },  // Mekong - Boot
+            { x: 550, y: 200 },  // Saigon - Roller
+            { x: 750, y: 280 },  // Saigon - Neon (Zone 3, zweites Item)
+            { x: 400, y: 280 },  // Thailand - Muschel
+            { x: 1100, y: 300 }  // Thailand - Kokosnuss
+        ];
+
+        // Souvenir für diese Zone
+        if(zone === 0) items.push({ x: startX + 850, y: 280, type: 'souvenir', souvenirId: 0, collected: false });
+        if(zone === 1) items.push({ x: startX + 920, y: 260, type: 'souvenir', souvenirId: 1, collected: false });
+        if(zone === 2) items.push({ x: startX + 800, y: 300, type: 'souvenir', souvenirId: 2, collected: false });
+        if(zone === 3) {
+            items.push({ x: startX + 550, y: 200, type: 'souvenir', souvenirId: 3, collected: false });
+            items.push({ x: startX + 1250, y: 300, type: 'souvenir', souvenirId: 4, collected: false });
+        }
+        if(zone === 4) {
+            items.push({ x: startX + 400, y: 280, type: 'souvenir', souvenirId: 5, collected: false });
+            items.push({ x: startX + 1350, y: 240, type: 'souvenir', souvenirId: 6, collected: false });
+        }
+        if(zone === 5) {
+            items.push({ x: startX + 1400, y: 250, type: 'key', collected: false });
+        }
+    }
+
+    // Goldene Geschenke (Level 2) - in Metzingen, Tübingen und Balingen
+    if(level === 2) {
+        if(zone === 1) items.push({ x: startX + 1550, y: 250, type: 'gift', giftId: 0, collected: false }); // Therme - Metzingen
+        if(zone === 2) items.push({ x: startX + 1450, y: 260, type: 'gift', giftId: 1, collected: false }); // Restaurant - Tübingen
+        if(zone === 3) items.push({ x: startX + 1350, y: 250, type: 'gift', giftId: 2, collected: false }); // Hotel - Balingen
+    }
+
+    return items;
+}
+
+// Hindernisse generieren (ERHÖHT für mehr Schwierigkeit!)
+function generateObstacles(level, zone) {
+    const obstacles = [];
+    const startX = zone * ZONE_WIDTH;
+
+    if(level === 1) {
+        if(zone === 0) { // Hanoi - 4 Roller (schneller!)
+            obstacles.push({ x: startX + 300, y: 510, w: 60, h: 40, type: 'scooter', startX: startX + 200, endX: startX + 500, speed: 3, dir: 1 });
+            obstacles.push({ x: startX + 700, y: 510, w: 60, h: 40, type: 'scooter', startX: startX + 550, endX: startX + 850, speed: 3.5, dir: -1 });
+            obstacles.push({ x: startX + 1000, y: 510, w: 60, h: 40, type: 'scooter', startX: startX + 900, endX: startX + 1200, speed: 3, dir: 1 });
+            obstacles.push({ x: startX + 1400, y: 510, w: 60, h: 40, type: 'scooter', startX: startX + 1300, endX: startX + 1600, speed: 4, dir: -1 });
+        }
+        if(zone === 1) { // Hoi An - 2 Roller + Laterne
+            obstacles.push({ x: startX + 400, y: 510, w: 60, h: 40, type: 'scooter', startX: startX + 300, endX: startX + 600, speed: 3, dir: 1 });
+            obstacles.push({ x: startX + 1100, y: 510, w: 60, h: 40, type: 'scooter', startX: startX + 1000, endX: startX + 1400, speed: 3.5, dir: -1 });
+            obstacles.push({ x: startX + 800, y: 280, w: 40, h: 40, type: 'lantern', startX: startX + 600, endX: startX + 1000, speed: 1.5, dir: 1 });
+        }
+        if(zone === 2) { // Mekong - 2 Krokodile
+            obstacles.push({ x: startX + 500, y: 520, w: 80, h: 30, type: 'croc', startX: startX + 300, endX: startX + 800, speed: 3.5, dir: 1 });
+            obstacles.push({ x: startX + 1200, y: 520, w: 80, h: 30, type: 'croc', startX: startX + 1000, endX: startX + 1500, speed: 4, dir: -1 });
+        }
+        if(zone === 3) { // Saigon - TukTuk Boss + 2 Roller (schneller!)
+            obstacles.push({ x: startX + 350, y: 510, w: 60, h: 40, type: 'scooter', startX: startX + 200, endX: startX + 550, speed: 4, dir: 1 });
+            obstacles.push({ x: startX + 900, y: 480, w: 80, h: 60, type: 'tuktuk', startX: startX + 600, endX: startX + 1200, speed: 4, dir: 1, hp: 2 });
+            obstacles.push({ x: startX + 1400, y: 510, w: 60, h: 40, type: 'scooter', startX: startX + 1250, endX: startX + 1600, speed: 3.5, dir: -1 });
+        }
+        if(zone === 4) { // Thailand - 2 Krabben
+            obstacles.push({ x: startX + 400, y: 530, w: 50, h: 30, type: 'crab', startX: startX + 250, endX: startX + 600, speed: 2.5, dir: 1 });
+            obstacles.push({ x: startX + 1100, y: 530, w: 50, h: 30, type: 'crab', startX: startX + 900, endX: startX + 1350, speed: 3, dir: -1 });
+        }
+        if(zone === 5) { // Finale - Boss-Krebs
+            obstacles.push({ x: startX + 800, y: 500, w: 100, h: 50, type: 'bosscrab', startX: startX + 500, endX: startX + 1200, speed: 2, dir: 1, hp: 3 });
+        }
+    }
+
+    if(level === 2) {
+        if(zone === 0) { // Reutlingen - 2 Fahrräder
+            obstacles.push({ x: startX + 400, y: 510, w: 60, h: 45, type: 'bike', startX: startX + 250, endX: startX + 650, speed: 4, dir: 1 });
+            obstacles.push({ x: startX + 1200, y: 510, w: 60, h: 45, type: 'bike', startX: startX + 1000, endX: startX + 1500, speed: 4.5, dir: -1 });
+        }
+        if(zone === 1) { // Metzingen - 2 Einkaufswagen + Shopper
+            obstacles.push({ x: startX + 350, y: 515, w: 55, h: 40, type: 'cart', startX: startX + 200, endX: startX + 550, speed: 3, dir: 1 });
+            obstacles.push({ x: startX + 900, y: 510, w: 40, h: 50, type: 'shopper', startX: startX + 700, endX: startX + 1100, speed: 2, dir: 1 });
+            obstacles.push({ x: startX + 1350, y: 515, w: 55, h: 40, type: 'cart', startX: startX + 1150, endX: startX + 1550, speed: 3.5, dir: -1 });
+        }
+        if(zone === 2) { // Tübingen - 2 Studenten auf Fahrrädern
+            obstacles.push({ x: startX + 500, y: 510, w: 60, h: 45, type: 'bike', startX: startX + 300, endX: startX + 750, speed: 4.5, dir: 1 });
+            obstacles.push({ x: startX + 1200, y: 510, w: 60, h: 45, type: 'bike', startX: startX + 1000, endX: startX + 1450, speed: 5, dir: -1 });
+        }
+        if(zone === 3) { // Balingen - 2 Hunde
+            obstacles.push({ x: startX + 400, y: 520, w: 50, h: 35, type: 'dog', startX: startX + 250, endX: startX + 600, speed: 3.5, dir: 1 });
+            obstacles.push({ x: startX + 1100, y: 520, w: 50, h: 35, type: 'dog', startX: startX + 900, endX: startX + 1350, speed: 4, dir: -1 });
+        }
+    }
+
+    return obstacles;
+}
+
+// Aktuelle Level-Daten
+let platforms = [];
+let collectibles = [];
+let obstacles = [];
+
+function loadZone(level, zone) {
+    platforms = [];
+    collectibles = [];
+    obstacles = [];
+
+    // Mehrere Zonen laden für flüssiges Scrolling
+    const startZ = Math.max(0, zone - 1);
+    const endZ = Math.min((level === 1 ? 5 : 3), zone + 1);
+
+    for(let z = startZ; z <= endZ; z++) {
+        platforms = platforms.concat(generatePlatforms(level, z));
+        collectibles = collectibles.concat(generateCollectibles(level, z));
+        obstacles = obstacles.concat(generateObstacles(level, z));
+    }
+}
+
+// ============================================
+// MAUSI ZEICHNEN
+// ============================================
+function drawMausi(x, y, facing, isMale, frame, hasSnorkel = false) {
+    ctx.save();
+    ctx.translate(x, y);
+    if(facing < 0) ctx.scale(-1, 1);
+
+    // Körper
+    ctx.fillStyle = '#C0C0C0';
+    ctx.beginPath();
+    ctx.ellipse(0, 10, 14, 18, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Kopf
+    ctx.fillStyle = '#D3D3D3';
+    ctx.beginPath();
+    ctx.arc(0, -12, 16, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Ohren
+    ctx.fillStyle = '#FFB6C1';
+    ctx.beginPath();
+    ctx.ellipse(-12, -24, 8, 10, -0.3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(12, -24, 8, 10, 0.3, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Innere Ohren
+    ctx.fillStyle = '#FF69B4';
+    ctx.beginPath();
+    ctx.ellipse(-12, -24, 4, 6, -0.3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(12, -24, 4, 6, 0.3, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Augen
+    ctx.fillStyle = '#000';
+    ctx.beginPath();
+    ctx.arc(-6, -14, 4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(6, -14, 4, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Glanzpunkte
+    ctx.fillStyle = '#FFF';
+    ctx.beginPath();
+    ctx.arc(-7, -15, 1.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(5, -15, 1.5, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Nase
+    ctx.fillStyle = '#FFB6C1';
+    ctx.beginPath();
+    ctx.arc(0, -6, 4, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Schnurrhaare
+    ctx.strokeStyle = '#888';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(-4, -6); ctx.lineTo(-18, -10);
+    ctx.moveTo(-4, -4); ctx.lineTo(-18, -4);
+    ctx.moveTo(4, -6); ctx.lineTo(18, -10);
+    ctx.moveTo(4, -4); ctx.lineTo(18, -4);
+    ctx.stroke();
+
+    // Schwanz
+    ctx.strokeStyle = '#FFB6C1';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(0, 25);
+    ctx.quadraticCurveTo(20 + Math.sin(frame * 0.2) * 5, 20, 25, 5 + Math.sin(frame * 0.3) * 3);
+    ctx.stroke();
+
+    // Beine (Animation)
+    ctx.fillStyle = '#FFB6C1';
+    const legOffset = Math.sin(frame * 0.3) * 3;
+    ctx.beginPath();
+    ctx.ellipse(-6, 26 + legOffset, 5, 6, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(6, 26 - legOffset, 5, 6, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Schleife (weiblich) oder Halstuch (männlich)
+    if(!isMale) {
+        // Rosa Schleife
+        ctx.fillStyle = '#FF69B4';
+        ctx.beginPath();
+        ctx.ellipse(-14, -28, 6, 4, -0.5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.ellipse(-8, -30, 6, 4, 0.5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#FF1493';
+        ctx.beginPath();
+        ctx.arc(-11, -29, 2, 0, Math.PI * 2);
+        ctx.fill();
+    } else {
+        // Blaues Halstuch
+        ctx.fillStyle = '#4169E1';
+        ctx.beginPath();
+        ctx.moveTo(-10, 0);
+        ctx.lineTo(10, 0);
+        ctx.lineTo(5, 15);
+        ctx.lineTo(0, 10);
+        ctx.lineTo(-5, 15);
+        ctx.closePath();
+        ctx.fill();
+    }
+
+    // Schnorchel (optional)
+    if(hasSnorkel) {
+        ctx.fillStyle = '#00CED1';
+        ctx.fillRect(14, -20, 4, 25);
+        ctx.beginPath();
+        ctx.arc(16, -22, 5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#87CEEB';
+        ctx.beginPath();
+        ctx.ellipse(10, -12, 8, 5, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#00CED1';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(2, -17, 16, 10);
+    }
+
+    ctx.restore();
+}
+
+// ============================================
+// OBJEKTE ZEICHNEN
+// ============================================
+function drawCheese(x, y) {
+    ctx.fillStyle = '#FFD700';
+    ctx.beginPath();
+    ctx.moveTo(x, y - 10);
+    ctx.lineTo(x + 12, y + 8);
+    ctx.lineTo(x - 12, y + 8);
+    ctx.closePath();
+    ctx.fill();
+
+    // Löcher
+    ctx.fillStyle = '#FFA500';
+    ctx.beginPath();
+    ctx.arc(x - 2, y, 2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(x + 4, y + 3, 1.5, 0, Math.PI * 2);
+    ctx.fill();
+}
+
+function drawSouvenir(x, y, id) {
+    const colors = ['#FF6347', '#FFD700', '#8B4513', '#C0C0C0', '#FF1493', '#FFB6C1', '#8B4513'];
+    ctx.fillStyle = colors[id];
+
+    ctx.save();
+    ctx.translate(x, y);
+
+    // Glitzer-Effekt
+    ctx.shadowColor = '#FFD700';
+    ctx.shadowBlur = 10;
+
+    switch(id) {
+        case 0: // Pho
+            ctx.beginPath();
+            ctx.arc(0, 0, 12, Math.PI, 0);
+            ctx.lineTo(12, 8);
+            ctx.lineTo(-12, 8);
+            ctx.closePath();
+            ctx.fill();
+            break;
+        case 1: // Lampion
+            ctx.beginPath();
+            ctx.ellipse(0, 0, 10, 14, 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = '#FF0';
+            ctx.beginPath();
+            ctx.arc(0, 0, 4, 0, Math.PI * 2);
+            ctx.fill();
+            break;
+        case 2: // Boot
+            ctx.beginPath();
+            ctx.moveTo(-15, 0);
+            ctx.quadraticCurveTo(0, 10, 15, 0);
+            ctx.lineTo(12, -5);
+            ctx.lineTo(-12, -5);
+            ctx.closePath();
+            ctx.fill();
+            break;
+        case 3: // Roller
+            ctx.fillRect(-10, -5, 20, 8);
+            ctx.beginPath();
+            ctx.arc(-6, 5, 5, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(6, 5, 5, 0, Math.PI * 2);
+            ctx.fill();
+            break;
+        case 4: // Neon
+            ctx.strokeStyle = '#FF1493';
+            ctx.lineWidth = 3;
+            ctx.shadowColor = '#FF1493';
+            ctx.beginPath();
+            ctx.moveTo(-10, -8);
+            ctx.lineTo(-10, 8);
+            ctx.lineTo(0, 0);
+            ctx.lineTo(10, 8);
+            ctx.lineTo(10, -8);
+            ctx.stroke();
+            break;
+        case 5: // Muschel
+            ctx.beginPath();
+            ctx.arc(0, 0, 12, Math.PI * 0.8, Math.PI * 0.2, true);
+            ctx.lineTo(0, 5);
+            ctx.closePath();
+            ctx.fill();
+            break;
+        case 6: // Kokosnuss
+            ctx.fillStyle = '#8B4513';
+            ctx.beginPath();
+            ctx.arc(0, 0, 12, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = '#D2691E';
+            ctx.beginPath();
+            ctx.arc(-4, -2, 2, 0, Math.PI * 2);
+            ctx.arc(4, -2, 2, 0, Math.PI * 2);
+            ctx.arc(0, 4, 2, 0, Math.PI * 2);
+            ctx.fill();
+            break;
+    }
+
+    ctx.restore();
+}
+
+function drawGoldenGift(x, y, id) {
+    ctx.save();
+    ctx.translate(x, y);
+
+    // Goldener Glanz
+    const glow = Math.sin(Date.now() * 0.005) * 5 + 15;
+    ctx.shadowColor = '#FFD700';
+    ctx.shadowBlur = glow;
+
+    ctx.fillStyle = '#FFD700';
+    ctx.strokeStyle = '#FFA500';
+    ctx.lineWidth = 2;
+
+    switch(id) {
+        case 0: // Welle
+            ctx.beginPath();
+            ctx.moveTo(-20, 0);
+            for(let i = -20; i <= 20; i += 2) {
+                ctx.lineTo(i, Math.sin(i * 0.3) * 8);
+            }
+            ctx.lineTo(20, 10);
+            ctx.lineTo(-20, 10);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+            break;
+        case 1: // Stern
+            ctx.beginPath();
+            for(let i = 0; i < 5; i++) {
+                const angle = (i * 4 * Math.PI / 5) - Math.PI / 2;
+                const r = i % 2 === 0 ? 15 : 7;
+                ctx.lineTo(Math.cos(angle) * r, Math.sin(angle) * r);
+            }
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+            break;
+        case 2: // Haus
+            ctx.beginPath();
+            ctx.moveTo(0, -15);
+            ctx.lineTo(15, 0);
+            ctx.lineTo(15, 15);
+            ctx.lineTo(-15, 15);
+            ctx.lineTo(-15, 0);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+            ctx.fillStyle = '#87CEEB';
+            ctx.fillRect(-5, 5, 10, 10);
+            break;
+    }
+
+    ctx.restore();
+}
+
+function drawKey(x, y) {
+    ctx.save();
+    ctx.translate(x, y);
+
+    const glow = Math.sin(Date.now() * 0.005) * 5 + 15;
+    ctx.shadowColor = '#FFD700';
+    ctx.shadowBlur = glow;
+
+    ctx.fillStyle = '#FFD700';
+    ctx.strokeStyle = '#DAA520';
+    ctx.lineWidth = 2;
+
+    // Schlüsselkopf
+    ctx.beginPath();
+    ctx.arc(0, -8, 10, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    // Schlüsselschaft
+    ctx.fillRect(-3, 0, 6, 20);
+    ctx.strokeRect(-3, 0, 6, 20);
+
+    // Zähne
+    ctx.fillRect(3, 12, 6, 4);
+    ctx.fillRect(3, 18, 4, 3);
+
+    ctx.restore();
+}
+
+function drawCage(x, y, isOpen) {
+    ctx.save();
+    ctx.translate(x, y);
+
+    ctx.strokeStyle = '#8B4513';
+    ctx.lineWidth = 4;
+
+    // Basis
+    ctx.fillStyle = '#A0522D';
+    ctx.fillRect(-40, 40, 80, 10);
+
+    if(!isOpen) {
+        // Gitterstäbe
+        for(let i = -35; i <= 35; i += 10) {
+            ctx.beginPath();
+            ctx.moveTo(i, -40);
+            ctx.lineTo(i, 40);
+            ctx.stroke();
+        }
+        // Oberer Bogen
+        ctx.beginPath();
+        ctx.arc(0, -40, 40, Math.PI, 0);
+        ctx.stroke();
+    } else {
+        // Offene Tür
+        ctx.beginPath();
+        ctx.moveTo(-40, 40);
+        ctx.lineTo(-40, -40);
+        ctx.arc(0, -40, 40, Math.PI, 0);
+        ctx.lineTo(40, 40);
+        ctx.stroke();
+    }
+
+    ctx.restore();
+}
+
+// ============================================
+// PLATTFORMEN ZEICHNEN
+// ============================================
+function drawPlatform(p, zoneColors) {
+    ctx.save();
+
+    switch(p.type) {
+        case 'ground':
+            ctx.fillStyle = zoneColors.ground;
+            ctx.fillRect(p.x - camera.x, p.y, p.w, p.h);
+            // Gras-Effekt
+            ctx.fillStyle = '#228B22';
+            for(let i = 0; i < p.w; i += 15) {
+                ctx.beginPath();
+                ctx.moveTo(p.x - camera.x + i, p.y);
+                ctx.lineTo(p.x - camera.x + i + 5, p.y - 8);
+                ctx.lineTo(p.x - camera.x + i + 10, p.y);
+                ctx.fill();
+            }
+            break;
+
+        case 'lampion':
+            // Leuchtende Lampion-Plattform
+            ctx.fillStyle = '#FFD700';
+            ctx.shadowColor = '#FFD700';
+            ctx.shadowBlur = 15;
+            ctx.fillRect(p.x - camera.x, p.y, p.w, p.h);
+            break;
+
+        case 'boat':
+            ctx.fillStyle = '#8B4513';
+            ctx.beginPath();
+            ctx.moveTo(p.x - camera.x, p.y + p.h);
+            ctx.quadraticCurveTo(p.x - camera.x + p.w/2, p.y + p.h + 15, p.x - camera.x + p.w, p.y + p.h);
+            ctx.lineTo(p.x - camera.x + p.w - 5, p.y);
+            ctx.lineTo(p.x - camera.x + 5, p.y);
+            ctx.closePath();
+            ctx.fill();
+            break;
+
+        case 'shell':
+            ctx.fillStyle = '#FFB6C1';
+            ctx.beginPath();
+            ctx.ellipse(p.x - camera.x + p.w/2, p.y + p.h/2, p.w/2, p.h/2, 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = '#FF69B4';
+            ctx.beginPath();
+            ctx.arc(p.x - camera.x + p.w/2, p.y, 8, 0, Math.PI * 2);
+            ctx.fill();
+            break;
+
+        case 'geyser':
+            ctx.fillStyle = '#795548';
+            ctx.fillRect(p.x - camera.x, p.y, p.w, p.h);
+            // Dampf
+            ctx.fillStyle = 'rgba(255,255,255,0.5)';
+            for(let i = 0; i < 3; i++) {
+                const offset = Math.sin(Date.now() * 0.003 + i) * 10;
+                ctx.beginPath();
+                ctx.arc(p.x - camera.x + p.w/2 + offset, p.y - 20 - i * 15, 10 - i * 2, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            break;
+
+        case 'bed':
+            ctx.fillStyle = '#E1BEE7';
+            ctx.fillRect(p.x - camera.x, p.y, p.w, p.h);
+            // Kissen
+            ctx.fillStyle = '#F8BBD9';
+            ctx.beginPath();
+            ctx.ellipse(p.x - camera.x + 20, p.y - 5, 15, 8, 0, 0, Math.PI * 2);
+            ctx.fill();
+            break;
+
+        case 'fachwerk':
+            // Fachwerkhaus-Plattform
+            ctx.fillStyle = '#F5F5DC'; // Beige Wand
+            ctx.fillRect(p.x - camera.x, p.y, p.w, p.h);
+            // Holzbalken
+            ctx.fillStyle = '#654321';
+            ctx.fillRect(p.x - camera.x, p.y, p.w, 4);
+            ctx.fillRect(p.x - camera.x, p.y, 4, p.h);
+            ctx.fillRect(p.x - camera.x + p.w - 4, p.y, 4, p.h);
+            // Diagonale Balken
+            ctx.strokeStyle = '#654321';
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.moveTo(p.x - camera.x, p.y + p.h);
+            ctx.lineTo(p.x - camera.x + p.w/2, p.y);
+            ctx.moveTo(p.x - camera.x + p.w, p.y + p.h);
+            ctx.lineTo(p.x - camera.x + p.w/2, p.y);
+            ctx.stroke();
+            // Dach-Andeutung
+            ctx.fillStyle = '#8B0000';
+            ctx.beginPath();
+            ctx.moveTo(p.x - camera.x - 5, p.y);
+            ctx.lineTo(p.x - camera.x + p.w/2, p.y - 15);
+            ctx.lineTo(p.x - camera.x + p.w + 5, p.y);
+            ctx.fill();
+            break;
+
+        case 'outlet':
+            // Outlet-Gebäude
+            ctx.fillStyle = '#FFF';
+            ctx.fillRect(p.x - camera.x, p.y, p.w, p.h);
+            // Schaufenster
+            ctx.fillStyle = '#87CEEB';
+            ctx.fillRect(p.x - camera.x + 10, p.y + 5, p.w - 20, p.h - 10);
+            // Rahmen
+            ctx.strokeStyle = '#333';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(p.x - camera.x, p.y, p.w, p.h);
+            // Sale-Schild
+            ctx.fillStyle = '#FF1493';
+            ctx.font = 'bold 10px Arial';
+            ctx.fillText('SALE', p.x - camera.x + p.w/2 - 15, p.y + p.h/2 + 3);
+            break;
+
+        case 'bruecke':
+            // Alte Steinbrücke
+            ctx.fillStyle = '#A9A9A9';
+            ctx.fillRect(p.x - camera.x, p.y, p.w, p.h);
+            // Brückenbogen darunter
+            ctx.fillStyle = '#696969';
+            ctx.beginPath();
+            ctx.arc(p.x - camera.x + p.w/2, p.y + p.h + 20, p.w/3, Math.PI, 0);
+            ctx.fill();
+            // Steinmuster
+            ctx.strokeStyle = '#808080';
+            ctx.lineWidth = 1;
+            for(let i = 0; i < p.w; i += 20) {
+                ctx.beginPath();
+                ctx.moveTo(p.x - camera.x + i, p.y);
+                ctx.lineTo(p.x - camera.x + i, p.y + p.h);
+                ctx.stroke();
+            }
+            // Geländer
+            ctx.fillStyle = '#556B2F';
+            ctx.fillRect(p.x - camera.x, p.y - 8, p.w, 4);
+            for(let i = 0; i < p.w; i += 30) {
+                ctx.fillRect(p.x - camera.x + i, p.y - 15, 3, 15);
+            }
+            break;
+
+        default:
+            ctx.fillStyle = zoneColors.ground;
+            ctx.fillRect(p.x - camera.x, p.y, p.w, p.h);
+    }
+
+    ctx.restore();
+}
+
+// ============================================
+// HINTERGRUND ZEICHNEN
+// ============================================
+function drawBackground(zone, level) {
+    const zones = level === 1 ? zones_L1 : zones_L2;
+    const z = zones[zone] || zones[0];
+
+    // Gradient Hintergrund
+    const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+    gradient.addColorStop(0, z.colors.bg);
+    gradient.addColorStop(1, shadeColor(z.colors.bg, -30));
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Deko-Elemente je nach Zone
+    if(level === 1) {
+        switch(zone) {
+            case 0: // Hanoi - Laternen
+                for(let i = 0; i < 5; i++) {
+                    drawLantern(100 + i * 200 - (camera.x * 0.3) % 200, 80);
+                }
+                break;
+            case 1: // Hoi An - Lampions
+                for(let i = 0; i < 8; i++) {
+                    const x = 50 + i * 120 - (camera.x * 0.2) % 120;
+                    drawColorfulLampion(x, 60 + Math.sin(i + Date.now() * 0.002) * 10, i);
+                }
+                break;
+            case 2: // Mekong - Palmen
+                for(let i = 0; i < 4; i++) {
+                    drawPalm(150 + i * 250 - (camera.x * 0.1) % 250, 400);
+                }
+                break;
+            case 3: // Saigon - Neon
+                drawNeonSigns();
+                break;
+            case 4: // Thailand - Wellen
+                drawWaves();
+                break;
+            case 5: // Finale - Sterne
+                drawStars();
+                break;
+        }
+    } else {
+        // Level 2 Hintergründe - Schwäbische Alb
+        drawAlbHills(); // Immer die Alb-Silhouette im Hintergrund
+        switch(zone) {
+            case 0: // Reutlingen
+                drawFachwerkhaeuser();
+                drawKirchturm();
+                break;
+            case 1: // Metzingen
+                drawOutletCity();
+                drawShoppingBags();
+                break;
+            case 2: // Tübingen
+                drawTuebingerSchloss();
+                drawNeckar();
+                drawStocherkahn();
+                break;
+            case 3: // Balingen - Finale
+                drawBalingen();
+                drawStars();
+                drawConfettiBackground();
+                break;
+        }
+    }
+}
+
+function shadeColor(color, percent) {
+    const num = parseInt(color.replace('#', ''), 16);
+    const amt = Math.round(2.55 * percent);
+    const R = (num >> 16) + amt;
+    const G = (num >> 8 & 0x00FF) + amt;
+    const B = (num & 0x0000FF) + amt;
+    return '#' + (0x1000000 + (R < 255 ? R < 1 ? 0 : R : 255) * 0x10000 + (G < 255 ? G < 1 ? 0 : G : 255) * 0x100 + (B < 255 ? B < 1 ? 0 : B : 255)).toString(16).slice(1);
+}
+
+function drawLantern(x, y) {
+    ctx.fillStyle = '#FF4500';
+    ctx.beginPath();
+    ctx.ellipse(x, y, 15, 20, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#FFD700';
+    ctx.beginPath();
+    ctx.arc(x, y, 5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#8B0000';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(x, y - 20);
+    ctx.lineTo(x, y - 40);
+    ctx.stroke();
+}
+
+function drawColorfulLampion(x, y, index) {
+    const colors = ['#FF6B6B', '#FFE66D', '#4ECDC4', '#FF8ED4', '#957FEF'];
+    ctx.fillStyle = colors[index % colors.length];
+    ctx.shadowColor = colors[index % colors.length];
+    ctx.shadowBlur = 20;
+    ctx.beginPath();
+    ctx.ellipse(x, y, 18, 25, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+}
+
+function drawPalm(x, y) {
+    ctx.fillStyle = '#8B4513';
+    ctx.fillRect(x - 8, y - 100, 16, 100);
+    ctx.fillStyle = '#228B22';
+    for(let i = 0; i < 5; i++) {
+        ctx.save();
+        ctx.translate(x, y - 100);
+        ctx.rotate((i - 2) * 0.4);
+        ctx.beginPath();
+        ctx.ellipse(0, -40, 10, 50, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+    }
+}
+
+function drawNeonSigns() {
+    ctx.shadowBlur = 20;
+    const signs = [
+        { x: 100, y: 100, text: 'PHO', color: '#FF1493' },
+        { x: 400, y: 80, text: 'OPEN', color: '#00FFFF' },
+        { x: 700, y: 120, text: '24H', color: '#FFFF00' }
+    ];
+    signs.forEach(s => {
+        const x = s.x - (camera.x * 0.2) % 300;
+        ctx.fillStyle = s.color;
+        ctx.shadowColor = s.color;
+        ctx.font = 'bold 24px Arial';
+        ctx.fillText(s.text, x, s.y);
+    });
+    ctx.shadowBlur = 0;
+}
+
+function drawWaves() {
+    ctx.fillStyle = 'rgba(64, 224, 208, 0.3)';
+    for(let i = 0; i < 3; i++) {
+        ctx.beginPath();
+        ctx.moveTo(0, 520 + i * 15);
+        for(let x = 0; x <= canvas.width; x += 20) {
+            ctx.lineTo(x, 520 + i * 15 + Math.sin((x + Date.now() * 0.002 + i * 50) * 0.02) * 10);
+        }
+        ctx.lineTo(canvas.width, canvas.height);
+        ctx.lineTo(0, canvas.height);
+        ctx.fill();
+    }
+}
+
+function drawStars() {
+    ctx.fillStyle = '#FFF';
+    for(let i = 0; i < 50; i++) {
+        const x = (i * 73 + camera.x * 0.05) % canvas.width;
+        const y = (i * 37) % 300;
+        const size = 1 + Math.sin(Date.now() * 0.003 + i) * 0.5;
+        ctx.beginPath();
+        ctx.arc(x, y, size, 0, Math.PI * 2);
+        ctx.fill();
+    }
+}
+
+function drawSteam() {
+    ctx.fillStyle = 'rgba(255,255,255,0.2)';
+    for(let i = 0; i < 10; i++) {
+        const x = (i * 100 - camera.x * 0.1) % canvas.width;
+        const y = 400 - Math.sin(Date.now() * 0.001 + i) * 50;
+        ctx.beginPath();
+        ctx.arc(x, y, 30 + Math.sin(Date.now() * 0.002 + i) * 10, 0, Math.PI * 2);
+        ctx.fill();
+    }
+}
+
+function drawCandles() {
+    for(let i = 0; i < 6; i++) {
+        const x = 80 + i * 150 - (camera.x * 0.15) % 150;
+        ctx.fillStyle = '#FFF8DC';
+        ctx.fillRect(x - 5, 450, 10, 40);
+        ctx.fillStyle = '#FFD700';
+        ctx.shadowColor = '#FFA500';
+        ctx.shadowBlur = 20;
+        ctx.beginPath();
+        ctx.ellipse(x, 445 - Math.sin(Date.now() * 0.01 + i) * 3, 6, 10, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+    }
+}
+
+function drawMoon() {
+    ctx.fillStyle = '#F5F5DC';
+    ctx.shadowColor = '#F5F5DC';
+    ctx.shadowBlur = 30;
+    ctx.beginPath();
+    ctx.arc(750, 80, 40, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+}
+
+function drawConfettiBackground() {
+    const colors = ['#FF6B6B', '#4ECDC4', '#FFE66D', '#95E1D3', '#F38181'];
+    for(let i = 0; i < 30; i++) {
+        ctx.fillStyle = colors[i % 5];
+        const x = (i * 47 + Date.now() * 0.05) % canvas.width;
+        const y = (i * 31 + Date.now() * 0.03) % canvas.height;
+        ctx.fillRect(x, y, 8, 8);
+    }
+}
+
+// ============================================
+// SCHWÄBISCHE ALB HINTERGRÜNDE
+// ============================================
+function drawAlbHills() {
+    // Sanfte Hügel der Schwäbischen Alb im Hintergrund
+    ctx.fillStyle = 'rgba(34, 139, 34, 0.3)';
+    ctx.beginPath();
+    ctx.moveTo(0, 400);
+    for(let x = 0; x <= canvas.width; x += 50) {
+        const parallax = (camera.x * 0.05) % 200;
+        ctx.lineTo(x, 250 + Math.sin((x + parallax) * 0.008) * 80 + Math.sin((x + parallax) * 0.003) * 40);
+    }
+    ctx.lineTo(canvas.width, 600);
+    ctx.lineTo(0, 600);
+    ctx.fill();
+
+    // Zweite Hügelkette (näher)
+    ctx.fillStyle = 'rgba(34, 139, 34, 0.5)';
+    ctx.beginPath();
+    ctx.moveTo(0, 450);
+    for(let x = 0; x <= canvas.width; x += 30) {
+        const parallax = (camera.x * 0.1) % 150;
+        ctx.lineTo(x, 320 + Math.sin((x + parallax) * 0.01) * 60);
+    }
+    ctx.lineTo(canvas.width, 600);
+    ctx.lineTo(0, 600);
+    ctx.fill();
+}
+
+function drawFachwerkhaeuser() {
+    // Reutlinger Fachwerkhäuser im Hintergrund
+    for(let i = 0; i < 5; i++) {
+        const x = 80 + i * 180 - (camera.x * 0.2) % 180;
+        const h = 80 + Math.sin(i) * 20;
+
+        // Hauswand
+        ctx.fillStyle = '#FFF8DC';
+        ctx.fillRect(x, 400 - h, 70, h);
+
+        // Holzbalken
+        ctx.fillStyle = '#654321';
+        ctx.fillRect(x, 400 - h, 70, 5);
+        ctx.fillRect(x, 400 - h, 5, h);
+        ctx.fillRect(x + 65, 400 - h, 5, h);
+        ctx.fillRect(x + 30, 400 - h, 5, h);
+
+        // Dach
+        ctx.fillStyle = '#8B0000';
+        ctx.beginPath();
+        ctx.moveTo(x - 10, 400 - h);
+        ctx.lineTo(x + 35, 400 - h - 35);
+        ctx.lineTo(x + 80, 400 - h);
+        ctx.fill();
+
+        // Fenster
+        ctx.fillStyle = '#87CEEB';
+        ctx.fillRect(x + 10, 400 - h + 20, 15, 20);
+        ctx.fillRect(x + 45, 400 - h + 20, 15, 20);
+    }
+}
+
+function drawKirchturm() {
+    // Marienkirche Reutlingen
+    const x = 750 - (camera.x * 0.15) % 100;
+
+    // Turm
+    ctx.fillStyle = '#A0522D';
+    ctx.fillRect(x, 200, 40, 200);
+
+    // Spitze
+    ctx.fillStyle = '#2F4F4F';
+    ctx.beginPath();
+    ctx.moveTo(x - 5, 200);
+    ctx.lineTo(x + 20, 100);
+    ctx.lineTo(x + 45, 200);
+    ctx.fill();
+
+    // Uhr
+    ctx.fillStyle = '#FFF';
+    ctx.beginPath();
+    ctx.arc(x + 20, 260, 15, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#333';
+    ctx.beginPath();
+    ctx.moveTo(x + 20, 260);
+    ctx.lineTo(x + 20, 250);
+    ctx.moveTo(x + 20, 260);
+    ctx.lineTo(x + 28, 263);
+    ctx.lineWidth = 2;
+    ctx.stroke();
+}
+
+function drawOutletCity() {
+    // Metzinger Outlet-Gebäude
+    for(let i = 0; i < 4; i++) {
+        const x = 100 + i * 220 - (camera.x * 0.18) % 220;
+
+        // Modernes Gebäude
+        ctx.fillStyle = '#F5F5F5';
+        ctx.fillRect(x, 320, 100, 80);
+
+        // Große Schaufenster
+        ctx.fillStyle = '#87CEEB';
+        ctx.fillRect(x + 10, 340, 35, 50);
+        ctx.fillRect(x + 55, 340, 35, 50);
+
+        // Markenname
+        const brands = ['HUGO', 'PUMA', 'BOSS', 'NIKE'];
+        ctx.fillStyle = '#333';
+        ctx.font = 'bold 14px Arial';
+        ctx.fillText(brands[i % 4], x + 30, 335);
+    }
+}
+
+function drawShoppingBags() {
+    // Schwebende Shopping-Bags als Dekoration
+    for(let i = 0; i < 6; i++) {
+        const x = 50 + i * 150 - (camera.x * 0.1) % 150;
+        const y = 100 + Math.sin(Date.now() * 0.002 + i) * 15;
+        const colors = ['#FF69B4', '#FFD700', '#FF6347', '#4ECDC4', '#9370DB', '#F0E68C'];
+
+        // Tasche
+        ctx.fillStyle = colors[i % 6];
+        ctx.fillRect(x, y, 25, 30);
+
+        // Henkel
+        ctx.strokeStyle = colors[i % 6];
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(x + 12.5, y, 8, Math.PI, 0);
+        ctx.stroke();
+    }
+}
+
+function drawTuebingerSchloss() {
+    // Schloss Hohentübingen
+    const x = 700 - (camera.x * 0.12) % 80;
+
+    // Hauptgebäude
+    ctx.fillStyle = '#D2B48C';
+    ctx.fillRect(x, 180, 120, 100);
+
+    // Türme
+    ctx.fillStyle = '#8B7355';
+    ctx.fillRect(x - 20, 150, 30, 130);
+    ctx.fillRect(x + 110, 150, 30, 130);
+
+    // Turmspitzen
+    ctx.fillStyle = '#2F4F4F';
+    ctx.beginPath();
+    ctx.moveTo(x - 25, 150);
+    ctx.lineTo(x - 5, 100);
+    ctx.lineTo(x + 15, 150);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(x + 105, 150);
+    ctx.lineTo(x + 125, 100);
+    ctx.lineTo(x + 145, 150);
+    ctx.fill();
+
+    // Fenster
+    ctx.fillStyle = '#87CEEB';
+    for(let i = 0; i < 4; i++) {
+        ctx.fillRect(x + 15 + i * 25, 200, 15, 25);
+        ctx.fillRect(x + 15 + i * 25, 240, 15, 20);
+    }
+}
+
+function drawNeckar() {
+    // Neckar-Fluss
+    ctx.fillStyle = 'rgba(65, 105, 225, 0.4)';
+    ctx.beginPath();
+    ctx.moveTo(0, 520);
+    for(let x = 0; x <= canvas.width; x += 20) {
+        ctx.lineTo(x, 510 + Math.sin((x + Date.now() * 0.002) * 0.05) * 8);
+    }
+    ctx.lineTo(canvas.width, 600);
+    ctx.lineTo(0, 600);
+    ctx.fill();
+}
+
+function drawStocherkahn() {
+    // Stocherkahn auf dem Neckar
+    const x = 300 - (camera.x * 0.08) % 400;
+    const bobY = Math.sin(Date.now() * 0.003) * 3;
+
+    // Boot
+    ctx.fillStyle = '#8B4513';
+    ctx.beginPath();
+    ctx.moveTo(x, 500 + bobY);
+    ctx.quadraticCurveTo(x + 40, 515 + bobY, x + 80, 500 + bobY);
+    ctx.lineTo(x + 70, 490 + bobY);
+    ctx.lineTo(x + 10, 490 + bobY);
+    ctx.closePath();
+    ctx.fill();
+
+    // Stocherstange
+    ctx.strokeStyle = '#654321';
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.moveTo(x + 60, 480 + bobY);
+    ctx.lineTo(x + 75, 540);
+    ctx.stroke();
+}
+
+function drawBalingen() {
+    // Balingen Heimat-Szene
+    // Zollernalbkreis Berge im Hintergrund
+    ctx.fillStyle = 'rgba(46, 139, 87, 0.6)';
+    ctx.beginPath();
+    ctx.moveTo(0, 350);
+    ctx.lineTo(200, 200);
+    ctx.lineTo(400, 280);
+    ctx.lineTo(600, 180);
+    ctx.lineTo(800, 260);
+    ctx.lineTo(canvas.width, 300);
+    ctx.lineTo(canvas.width, 600);
+    ctx.lineTo(0, 600);
+    ctx.fill();
+
+    // Burg Hohenzollern Silhouette (klein im Hintergrund)
+    ctx.fillStyle = '#555';
+    ctx.beginPath();
+    ctx.moveTo(600, 200);
+    ctx.lineTo(620, 160);
+    ctx.lineTo(640, 180);
+    ctx.lineTo(660, 140);
+    ctx.lineTo(680, 180);
+    ctx.lineTo(700, 160);
+    ctx.lineTo(720, 200);
+    ctx.fill();
+
+    // Herzen für Heimatgefühl
+    if(Math.random() < 0.02) {
+        createParticle(Math.random() * canvas.width, 300, 'heart');
+    }
+}
+
+// ============================================
+// HINDERNISSE ZEICHNEN
+// ============================================
+function drawObstacle(o) {
+    ctx.save();
+    ctx.translate(o.x - camera.x, o.y);
+
+    switch(o.type) {
+        case 'scooter':
+            // Roller
+            ctx.fillStyle = '#E74C3C';
+            ctx.fillRect(-20, -15, 40, 20);
+            ctx.fillStyle = '#333';
+            ctx.beginPath();
+            ctx.arc(-12, 10, 8, 0, Math.PI * 2);
+            ctx.arc(12, 10, 8, 0, Math.PI * 2);
+            ctx.fill();
+            // Lenker
+            ctx.fillRect(15, -25, 4, 15);
+            break;
+
+        case 'tuktuk':
+            // TukTuk
+            ctx.fillStyle = o.hp > 1 ? '#27AE60' : '#E74C3C';
+            ctx.fillRect(-30, -30, 60, 45);
+            ctx.fillStyle = '#F1C40F';
+            ctx.fillRect(-25, -25, 50, 20);
+            ctx.fillStyle = '#333';
+            ctx.beginPath();
+            ctx.arc(-20, 20, 10, 0, Math.PI * 2);
+            ctx.arc(20, 20, 10, 0, Math.PI * 2);
+            ctx.fill();
+            // HP Anzeige
+            ctx.fillStyle = '#FFF';
+            ctx.font = '16px Arial';
+            ctx.fillText(o.hp + 'x', -8, -35);
+            break;
+
+        case 'lantern':
+            // Fliegende Laterne (Hoi An)
+            ctx.fillStyle = '#FF6B35';
+            ctx.beginPath();
+            ctx.ellipse(0, 0, 18, 22, 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = '#FFD93D';
+            ctx.beginPath();
+            ctx.ellipse(0, 0, 12, 16, 0, 0, Math.PI * 2);
+            ctx.fill();
+            // Flamme
+            ctx.fillStyle = '#FF4444';
+            ctx.beginPath();
+            ctx.ellipse(0, 5, 5, 8, 0, 0, Math.PI * 2);
+            ctx.fill();
+            break;
+
+        case 'croc':
+            // Krokodil (Mekong)
+            ctx.fillStyle = '#2E7D32';
+            ctx.fillRect(-35, -8, 70, 16);
+            // Kopf
+            ctx.beginPath();
+            ctx.moveTo(35, -10);
+            ctx.lineTo(50, 0);
+            ctx.lineTo(35, 10);
+            ctx.closePath();
+            ctx.fill();
+            // Augen
+            ctx.fillStyle = '#FFF';
+            ctx.beginPath();
+            ctx.arc(30, -5, 4, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = '#000';
+            ctx.beginPath();
+            ctx.arc(31, -5, 2, 0, Math.PI * 2);
+            ctx.fill();
+            // Zähne
+            ctx.fillStyle = '#FFF';
+            for(let i = 0; i < 4; i++) {
+                ctx.fillRect(38 + i*3, 2, 2, 4);
+            }
+            break;
+
+        case 'crab':
+            // Krabbe (Thailand)
+            ctx.fillStyle = '#E74C3C';
+            ctx.beginPath();
+            ctx.ellipse(0, 0, 20, 12, 0, 0, Math.PI * 2);
+            ctx.fill();
+            // Scheren
+            ctx.fillStyle = '#C0392B';
+            ctx.beginPath();
+            ctx.arc(-25, -5, 8, 0, Math.PI * 2);
+            ctx.arc(25, -5, 8, 0, Math.PI * 2);
+            ctx.fill();
+            // Augen
+            ctx.fillStyle = '#000';
+            ctx.beginPath();
+            ctx.arc(-6, -8, 3, 0, Math.PI * 2);
+            ctx.arc(6, -8, 3, 0, Math.PI * 2);
+            ctx.fill();
+            break;
+
+        case 'bosscrab':
+            // Boss-Krebs (Finale)
+            ctx.fillStyle = o.hp > 1 ? '#9B59B6' : '#E74C3C';
+            ctx.beginPath();
+            ctx.ellipse(0, 0, 45, 25, 0, 0, Math.PI * 2);
+            ctx.fill();
+            // Riesenscheren
+            ctx.fillStyle = o.hp > 1 ? '#8E44AD' : '#C0392B';
+            ctx.beginPath();
+            ctx.arc(-55, -10, 18, 0, Math.PI * 2);
+            ctx.arc(55, -10, 18, 0, Math.PI * 2);
+            ctx.fill();
+            // Augen
+            ctx.fillStyle = '#FFF';
+            ctx.beginPath();
+            ctx.arc(-12, -18, 8, 0, Math.PI * 2);
+            ctx.arc(12, -18, 8, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = '#000';
+            ctx.beginPath();
+            ctx.arc(-10, -18, 4, 0, Math.PI * 2);
+            ctx.arc(14, -18, 4, 0, Math.PI * 2);
+            ctx.fill();
+            // HP Anzeige
+            ctx.fillStyle = '#FFF';
+            ctx.font = 'bold 18px Arial';
+            ctx.fillText(o.hp + '❤', -12, -35);
+            break;
+
+        case 'bike':
+            // Fahrrad (Schwäbische Alb)
+            ctx.fillStyle = '#3498DB';
+            // Rahmen
+            ctx.beginPath();
+            ctx.moveTo(-15, 0);
+            ctx.lineTo(0, -20);
+            ctx.lineTo(15, 0);
+            ctx.lineTo(-15, 0);
+            ctx.stroke();
+            ctx.strokeStyle = '#3498DB';
+            ctx.lineWidth = 3;
+            // Räder
+            ctx.fillStyle = '#333';
+            ctx.beginPath();
+            ctx.arc(-18, 8, 12, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.arc(18, 8, 12, 0, Math.PI * 2);
+            ctx.stroke();
+            // Lenker
+            ctx.fillStyle = '#333';
+            ctx.fillRect(-5, -28, 10, 5);
+            // Fahrer (Kopf)
+            ctx.fillStyle = '#FFDAB9';
+            ctx.beginPath();
+            ctx.arc(0, -35, 8, 0, Math.PI * 2);
+            ctx.fill();
+            break;
+
+        case 'cart':
+            // Einkaufswagen (Metzingen)
+            ctx.strokeStyle = '#95A5A6';
+            ctx.lineWidth = 2;
+            // Korb
+            ctx.strokeRect(-22, -20, 44, 25);
+            // Gitter
+            ctx.beginPath();
+            ctx.moveTo(-22, -10);
+            ctx.lineTo(22, -10);
+            ctx.moveTo(-11, -20);
+            ctx.lineTo(-11, 5);
+            ctx.moveTo(0, -20);
+            ctx.lineTo(0, 5);
+            ctx.moveTo(11, -20);
+            ctx.lineTo(11, 5);
+            ctx.stroke();
+            // Räder
+            ctx.fillStyle = '#333';
+            ctx.beginPath();
+            ctx.arc(-15, 12, 6, 0, Math.PI * 2);
+            ctx.arc(15, 12, 6, 0, Math.PI * 2);
+            ctx.fill();
+            // Griff
+            ctx.strokeRect(22, -15, 8, 3);
+            break;
+
+        case 'shopper':
+            // Shopper mit Tüten (Metzingen)
+            // Körper
+            ctx.fillStyle = '#E91E63';
+            ctx.fillRect(-12, -25, 24, 35);
+            // Kopf
+            ctx.fillStyle = '#FFDAB9';
+            ctx.beginPath();
+            ctx.arc(0, -35, 10, 0, Math.PI * 2);
+            ctx.fill();
+            // Haare
+            ctx.fillStyle = '#5D4037';
+            ctx.beginPath();
+            ctx.arc(0, -40, 10, Math.PI, Math.PI * 2);
+            ctx.fill();
+            // Shopping Bags
+            ctx.fillStyle = '#FF69B4';
+            ctx.fillRect(-25, -10, 12, 18);
+            ctx.fillStyle = '#9C27B0';
+            ctx.fillRect(13, -10, 12, 18);
+            break;
+
+        case 'dog':
+            // Hund (Balingen)
+            ctx.fillStyle = '#8B4513';
+            // Körper
+            ctx.beginPath();
+            ctx.ellipse(0, 0, 22, 12, 0, 0, Math.PI * 2);
+            ctx.fill();
+            // Kopf
+            ctx.beginPath();
+            ctx.arc(20, -5, 12, 0, Math.PI * 2);
+            ctx.fill();
+            // Schnauze
+            ctx.fillStyle = '#D2691E';
+            ctx.beginPath();
+            ctx.ellipse(30, -2, 8, 5, 0, 0, Math.PI * 2);
+            ctx.fill();
+            // Augen
+            ctx.fillStyle = '#000';
+            ctx.beginPath();
+            ctx.arc(22, -10, 3, 0, Math.PI * 2);
+            ctx.fill();
+            // Ohren
+            ctx.fillStyle = '#8B4513';
+            ctx.beginPath();
+            ctx.ellipse(15, -15, 6, 10, -0.3, 0, Math.PI * 2);
+            ctx.fill();
+            // Schwanz
+            ctx.strokeStyle = '#8B4513';
+            ctx.lineWidth = 4;
+            ctx.beginPath();
+            ctx.arc(-25, -5, 10, 0.5, Math.PI);
+            ctx.stroke();
+            break;
+    }
+
+    ctx.restore();
+}
+
+// ============================================
+// HUD ZEICHNEN
+// ============================================
+function drawRoundedRect(x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ctx.lineTo(x + r, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
+    ctx.fill();
+}
+
+// Touch Controls zeichnen (nur auf Mobile)
+function drawTouchControls() {
+    if(!isMobile) return;
+
+    ctx.save();
+    ctx.globalAlpha = 0.5;
+
+    // Linker Button (←)
+    ctx.fillStyle = touchLeft ? '#FF69B4' : 'rgba(255,255,255,0.3)';
+    ctx.beginPath();
+    ctx.arc(60, canvas.height - 60, 50, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#FFF';
+    ctx.font = 'bold 36px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText('←', 60, canvas.height - 48);
+
+    // Rechter Button (→)
+    ctx.fillStyle = touchRight ? '#FF69B4' : 'rgba(255,255,255,0.3)';
+    ctx.beginPath();
+    ctx.arc(180, canvas.height - 60, 50, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#FFF';
+    ctx.fillText('→', 180, canvas.height - 48);
+
+    // Sprung Button
+    ctx.fillStyle = touchJump ? '#4ECDC4' : 'rgba(255,255,255,0.3)';
+    ctx.beginPath();
+    ctx.arc(canvas.width - 60, canvas.height - 60, 55, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#FFF';
+    ctx.font = 'bold 28px Arial';
+    ctx.fillText('JUMP', canvas.width - 60, canvas.height - 52);
+
+    ctx.textAlign = 'left';
+    ctx.restore();
+}
+
+function drawHUD() {
+    // Käse Counter mit Glasmorphism-Effekt
+    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    ctx.shadowColor = 'rgba(0,0,0,0.3)';
+    ctx.shadowBlur = 10;
+    ctx.shadowOffsetY = 3;
+    drawRoundedRect(10, 10, 130, 45, 12);
+    ctx.shadowBlur = 0;
+    ctx.shadowOffsetY = 0;
+
+    // Glanz-Effekt
+    ctx.fillStyle = 'rgba(255,255,255,0.1)';
+    drawRoundedRect(10, 10, 130, 22, 12);
+
+    ctx.fillStyle = '#FFD700';
+    ctx.shadowColor = '#FFD700';
+    ctx.shadowBlur = 8;
+    ctx.font = 'bold 26px Arial';
+    ctx.fillText('🧀 ' + cheeseCount, 22, 42);
+    ctx.shadowBlur = 0;
+
+    // Leben-Anzeige (Herzen)
+    const livesLeft = player.maxHits - player.hits;
+    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    ctx.shadowColor = 'rgba(0,0,0,0.3)';
+    ctx.shadowBlur = 10;
+    ctx.shadowOffsetY = 3;
+    drawRoundedRect(145, 10, 90, 45, 12);
+    ctx.shadowBlur = 0;
+    ctx.shadowOffsetY = 0;
+
+    ctx.fillStyle = 'rgba(255,255,255,0.1)';
+    drawRoundedRect(145, 10, 90, 22, 12);
+
+    ctx.fillStyle = livesLeft <= 3 ? '#E74C3C' : '#E74C3C';
+    ctx.shadowColor = livesLeft <= 3 ? '#E74C3C' : '#E74C3C';
+    ctx.shadowBlur = livesLeft <= 3 ? 12 : 5;
+    ctx.font = 'bold 24px Arial';
+    ctx.fillText('❤️ ' + livesLeft, 157, 42);
+    ctx.shadowBlur = 0;
+
+    // Zonen-Name mit Gradient
+    const zones = currentLevel === 1 ? zones_L1 : zones_L2;
+    const zoneName = zones[currentZone]?.name || '';
+    const zoneSubtitle = zones[currentZone]?.subtitle || '';
+
+    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    ctx.shadowColor = 'rgba(0,0,0,0.3)';
+    ctx.shadowBlur = 10;
+    ctx.shadowOffsetY = 3;
+    drawRoundedRect(canvas.width - 220, 10, 210, 50, 12);
+    ctx.shadowBlur = 0;
+    ctx.shadowOffsetY = 0;
+
+    // Glanz
+    ctx.fillStyle = 'rgba(255,255,255,0.1)';
+    drawRoundedRect(canvas.width - 220, 10, 210, 25, 12);
+
+    ctx.fillStyle = '#FFF';
+    ctx.font = 'bold 18px Arial';
+    ctx.fillText(zoneName, canvas.width - 210, 32);
+    ctx.fillStyle = 'rgba(255,255,255,0.7)';
+    ctx.font = '11px Arial';
+    ctx.fillText(zoneSubtitle.slice(0, 25), canvas.width - 210, 50);
+
+    // Souvenirs (Level 1)
+    if(currentLevel === 1) {
+        ctx.fillStyle = 'rgba(0,0,0,0.6)';
+        ctx.shadowColor = 'rgba(0,0,0,0.3)';
+        ctx.shadowBlur = 10;
+        ctx.shadowOffsetY = 3;
+        drawRoundedRect(10, 65, 300, 45, 12);
+        ctx.shadowBlur = 0;
+        ctx.shadowOffsetY = 0;
+
+        ctx.fillStyle = 'rgba(255,255,255,0.1)';
+        drawRoundedRect(10, 65, 300, 22, 12);
+
+        ctx.font = 'bold 13px Arial';
+        ctx.fillStyle = '#FFF';
+        ctx.fillText('Souvenirs:', 20, 90);
+
+        const icons = ['🍜', '🏮', '🚣', '🛵', '💡', '🐚', '🥥'];
+        for(let i = 0; i < 7; i++) {
+            ctx.fillStyle = souvenirs[i] ? '#FFD700' : '#555';
+            if(souvenirs[i]) {
+                ctx.shadowColor = '#FFD700';
+                ctx.shadowBlur = 5;
+            }
+            ctx.font = '18px Arial';
+            ctx.fillText(icons[i], 105 + i * 28, 92);
+            ctx.shadowBlur = 0;
+        }
+    }
+
+    // Goldene Geschenke (Level 2)
+    if(currentLevel === 2) {
+        ctx.fillStyle = 'rgba(0,0,0,0.7)';
+        ctx.shadowColor = 'rgba(0,0,0,0.3)';
+        ctx.shadowBlur = 10;
+        ctx.shadowOffsetY = 3;
+        drawRoundedRect(10, 65, 310, 55, 12);
+        ctx.shadowBlur = 0;
+        ctx.shadowOffsetY = 0;
+
+        ctx.fillStyle = 'rgba(255,255,255,0.1)';
+        drawRoundedRect(10, 65, 310, 27, 12);
+
+        ctx.font = 'bold 13px Arial';
+        ctx.fillStyle = '#FFF';
+        ctx.fillText('Geschenke:', 20, 88);
+
+        const giftInfo = [
+            { icon: '🌊', label: 'Therme' },
+            { icon: '⭐', label: 'Restaurant' },
+            { icon: '🏠', label: 'Hotel' }
+        ];
+
+        for(let i = 0; i < 3; i++) {
+            const x = 115 + i * 65;
+
+            // Hintergrund für jedes Icon
+            ctx.fillStyle = goldenGifts[i] ? 'rgba(255,215,0,0.2)' : 'rgba(100,100,100,0.2)';
+            drawRoundedRect(x - 12, 75, 50, 40, 8);
+
+            // Icon
+            ctx.fillStyle = goldenGifts[i] ? '#FFD700' : '#666';
+            if(goldenGifts[i]) {
+                ctx.shadowColor = '#FFD700';
+                ctx.shadowBlur = 8;
+            }
+            ctx.font = '22px Arial';
+            ctx.fillText(giftInfo[i].icon, x, 95);
+            ctx.shadowBlur = 0;
+
+            // Label darunter
+            ctx.fillStyle = goldenGifts[i] ? '#4ECDC4' : '#888';
+            ctx.font = '10px Arial';
+            ctx.fillText(giftInfo[i].label, x - 2, 112);
+        }
+    }
+}
+
+// ============================================
+// UI ELEMENTE
+// ============================================
+function drawButton(x, y, w, h, text, isHovered) {
+    ctx.fillStyle = isHovered ? '#FF69B4' : '#FF1493';
+    ctx.shadowColor = '#FF69B4';
+    ctx.shadowBlur = isHovered ? 20 : 10;
+
+    // Rounded Rectangle
+    const r = 10;
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ctx.lineTo(x + r, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.fill();
+
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#FFF';
+    ctx.font = 'bold 24px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText(text, x + w/2, y + h/2 + 8);
+    ctx.textAlign = 'left';
+}
+
+function isMouseOver(x, y, w, h) {
+    return mouseX >= x && mouseX <= x + w && mouseY >= y && mouseY <= y + h;
+}
+
+// ============================================
+// MENÜ
+// ============================================
+function drawMenu() {
+    // Hintergrund
+    const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+    gradient.addColorStop(0, '#1a1a2e');
+    gradient.addColorStop(1, '#16213e');
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Sterne
+    drawStars();
+
+    // Titel
+    ctx.fillStyle = '#FFD700';
+    ctx.shadowColor = '#FFD700';
+    ctx.shadowBlur = 20;
+    ctx.font = 'bold 48px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText('🐭 2 Mäuse in Vietnam & Thailand 🐭', canvas.width/2, 150);
+
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#FF69B4';
+    ctx.font = '24px Arial';
+    ctx.fillText('Ein Spiel für ' + CONFIG.birthdayName, canvas.width/2, 200);
+    ctx.fillText(CONFIG.birthdayDate + ' ❤️', canvas.width/2, 240);
+
+    // Mäuse zeichnen
+    drawMausi(canvas.width/2 - 80, 350, 1, false, Date.now() * 0.01);
+    drawMausi(canvas.width/2 + 80, 350, -1, true, Date.now() * 0.01);
+
+    // Start Button
+    const btnX = canvas.width/2 - 100;
+    const btnY = 450;
+    const btnW = 200;
+    const btnH = 50;
+    const hovered = isMouseOver(btnX, btnY, btnW, btnH);
+    drawButton(btnX, btnY, btnW, btnH, 'SPIELEN', hovered);
+
+    if(hovered && mouseClicked) {
+        initAudio();
+        startLevel(1);
+    }
+
+    ctx.textAlign = 'left';
+}
+
+// ============================================
+// GAME OVER
+// ============================================
+function drawGameOver() {
+    // Dunkler Hintergrund
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Game Over Text
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#E74C3C';
+    ctx.shadowColor = '#E74C3C';
+    ctx.shadowBlur = 30;
+    ctx.font = 'bold 64px Arial';
+    ctx.fillText('GAME OVER', canvas.width/2, 200);
+    ctx.shadowBlur = 0;
+
+    // Treffer-Info
+    ctx.fillStyle = '#FFF';
+    ctx.font = '28px Arial';
+    ctx.fillText('5 Treffer kassiert!', canvas.width/2, 280);
+
+    // Traurige Mäuse
+    ctx.save();
+    ctx.translate(canvas.width/2 - 50, 380);
+    ctx.scale(1.5, 1.5);
+    drawMausi(0, 0, 1, false, 0);
+    ctx.restore();
+    ctx.save();
+    ctx.translate(canvas.width/2 + 50, 380);
+    ctx.scale(1.5, 1.5);
+    drawMausi(0, 0, -1, true, 0);
+    ctx.restore();
+
+    // Nochmal versuchen Button
+    gameOverTimer++;
+    if(gameOverTimer > 60) { // Nach 1 Sekunde
+        const btnX = canvas.width/2 - 120;
+        const btnY = 480;
+        const btnW = 240;
+        const btnH = 50;
+        const hovered = isMouseOver(btnX, btnY, btnW, btnH);
+        drawButton(btnX, btnY, btnW, btnH, 'NOCHMAL VERSUCHEN', hovered);
+
+        if(hovered && mouseClicked) {
+            startLevel(currentLevel);
+        }
+    }
+
+    ctx.textAlign = 'left';
+}
+
+// ============================================
+// POSTKARTEN
+// ============================================
+let postcardTimer = 0;
+let postcardZone = -1;
+
+function showPostcard(zone) {
+    postcardZone = zone;
+    postcardTimer = 180; // 3 Sekunden
+    currentState = GameState.POSTCARD;
+}
+
+function drawPostcard() {
+    const zones = currentLevel === 1 ? zones_L1 : zones_L2;
+    const z = zones[postcardZone];
+
+    // Hintergrund abdunkeln
+    ctx.fillStyle = 'rgba(0,0,0,0.7)';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Postkarte
+    ctx.fillStyle = '#FFF8DC';
+    ctx.shadowColor = '#000';
+    ctx.shadowBlur = 20;
+    ctx.fillRect(canvas.width/2 - 250, canvas.height/2 - 120, 500, 240);
+    ctx.shadowBlur = 0;
+
+    // Briefmarke
+    ctx.fillStyle = '#FF6347';
+    ctx.fillRect(canvas.width/2 + 170, canvas.height/2 - 100, 60, 50);
+    ctx.fillStyle = '#FFF';
+    ctx.font = '12px Arial';
+    ctx.fillText('VIETNAM', canvas.width/2 + 175, canvas.height/2 - 60);
+
+    // Text
+    ctx.fillStyle = '#333';
+    ctx.font = 'bold 32px Georgia';
+    ctx.textAlign = 'center';
+    ctx.fillText('📸 ' + z.name + ' 📸', canvas.width/2, canvas.height/2 - 40);
+
+    ctx.font = '20px Georgia';
+    ctx.fillStyle = '#666';
+    ctx.fillText('"' + z.subtitle + '"', canvas.width/2, canvas.height/2 + 20);
+
+    ctx.font = '16px Arial';
+    ctx.fillStyle = '#999';
+    ctx.fillText('Weiter mit beliebiger Taste...', canvas.width/2, canvas.height/2 + 80);
+
+    ctx.textAlign = 'left';
+
+    postcardTimer--;
+    if(postcardTimer <= 0 || Object.values(keys).some(k => k)) {
+        currentState = currentLevel === 1 ? GameState.PLAYING_L1 : GameState.PLAYING_L2;
+        postcardZone = -1;
+        // Reset keys
+        Object.keys(keys).forEach(k => keys[k] = false);
+    }
+}
+
+// ============================================
+// CUTSCENES
+// ============================================
+let cutsceneStep = 0;
+let cutsceneTimer = 0;
+
+function drawCutsceneL1() {
+    // Hintergrund
+    ctx.fillStyle = '#FFD700';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    drawStars();
+
+    // Beide Mäuse
+    drawMausi(canvas.width/2 - 60, 350, 1, false, Date.now() * 0.01);
+    drawMausi(canvas.width/2 + 60, 350, -1, true, Date.now() * 0.01);
+
+    // Dialog
+    ctx.fillStyle = 'rgba(0,0,0,0.8)';
+    ctx.fillRect(100, 150, canvas.width - 200, 150);
+
+    ctx.fillStyle = '#FFF';
+    ctx.font = '24px Arial';
+    ctx.textAlign = 'center';
+
+    const dialogues = [
+        { speaker: 'Weibliche Mausi', text: 'Du bist frei!' },
+        { speaker: 'Männliche Mausi', text: 'Danke! Ich bin Mausi.' },
+        { speaker: 'Weibliche Mausi', text: '...Ich auch.' },
+        { speaker: 'Männliche Mausi', text: 'Oh.' },
+        { speaker: '', text: '❤️ Mausi hat Mausi befreit! ❤️' }
+    ];
+
+    if(cutsceneStep < dialogues.length) {
+        const d = dialogues[cutsceneStep];
+        if(d.speaker) {
+            ctx.fillStyle = '#FFD700';
+            ctx.fillText(d.speaker + ':', canvas.width/2, 200);
+        }
+        ctx.fillStyle = '#FFF';
+        ctx.font = d.speaker ? '28px Arial' : 'bold 32px Arial';
+        ctx.fillText(d.text, canvas.width/2, 250);
+    }
+
+    // Herzen Partikel
+    if(cutsceneStep >= 4) {
+        if(Math.random() < 0.1) {
+            createParticle(Math.random() * canvas.width, 0, 'heart');
+        }
+    }
+    drawParticles();
+
+    // Weiter
+    ctx.font = '16px Arial';
+    ctx.fillStyle = '#AAA';
+    ctx.fillText('Klicken zum Fortfahren...', canvas.width/2, 550);
+
+    if(mouseClicked) {
+        cutsceneStep++;
+        if(cutsceneStep > dialogues.length) {
+            showBirthdayScreen();
+        }
+    }
+
+    ctx.textAlign = 'left';
+}
+
+let birthdayScreenTimer = 0;
+
+function showBirthdayScreen() {
+    currentState = 'birthday';
+    birthdayScreenTimer = 0;
+}
+
+function drawBirthdayScreen() {
+    // Hintergrund
+    ctx.fillStyle = '#1a1a2e';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Konfetti
+    if(birthdayScreenTimer % 5 === 0) {
+        createParticle(Math.random() * canvas.width, 0, 'confetti');
+    }
+    drawParticles();
+    updateParticles();
+
+    // Text
+    ctx.fillStyle = '#FFD700';
+    ctx.shadowColor = '#FFD700';
+    ctx.shadowBlur = 30;
+    ctx.font = 'bold 56px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText('🎂 Happy Birthday, ' + CONFIG.birthdayName + '! 🎂', canvas.width/2, 200);
+
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#FF69B4';
+    ctx.font = '36px Arial';
+    ctx.fillText(CONFIG.birthdayDate + ' ❤️', canvas.width/2, 270);
+
+    // Souvenirs
+    ctx.fillStyle = '#FFF';
+    ctx.font = '20px Arial';
+    ctx.fillText('Gesammelte Souvenirs:', canvas.width/2, 340);
+
+    const icons = ['🍜', '🏮', '🚣', '🛵', '💡', '🐚', '🥥'];
+    for(let i = 0; i < 7; i++) {
+        ctx.fillStyle = souvenirs[i] ? '#FFD700' : '#555';
+        ctx.font = '32px Arial';
+        ctx.fillText(icons[i], canvas.width/2 - 120 + i * 40, 390);
+    }
+
+    ctx.fillStyle = '#FFF';
+    ctx.font = '20px Arial';
+    ctx.fillText('Käse gesammelt: ' + cheeseCount + ' 🧀', canvas.width/2, 440);
+
+    // Bonus Level Button
+    const btnX = canvas.width/2 - 150;
+    const btnY = 480;
+    const btnW = 300;
+    const btnH = 50;
+    const hovered = isMouseOver(btnX, btnY, btnW, btnH);
+
+    ctx.fillStyle = '#FFF';
+    ctx.font = '18px Arial';
+    ctx.fillText('"Aber warte... da ist noch mehr!"', canvas.width/2, 470);
+
+    drawButton(btnX, btnY + 30, btnW, btnH, '🎁 BONUS-LEVEL 🎁', hovered);
+
+    if(hovered && mouseClicked) {
+        startLevel(2);
+    }
+
+    ctx.textAlign = 'left';
+    birthdayScreenTimer++;
+}
+
+// ============================================
+// LEVEL 2 FINALE
+// ============================================
+let finaleStep = 0;
+let finaleTimer = 0;
+let bubbles = [];
+
+// Champagner-Blasen für das Thermalbad
+function createBubble(x, y) {
+    bubbles.push({
+        x: x + (Math.random() - 0.5) * 100,
+        y: y,
+        size: 3 + Math.random() * 8,
+        speed: 0.5 + Math.random() * 1.5,
+        wobble: Math.random() * Math.PI * 2
+    });
+}
+
+function updateBubbles() {
+    bubbles = bubbles.filter(b => {
+        b.y -= b.speed;
+        b.x += Math.sin(b.wobble + b.y * 0.02) * 0.5;
+        b.wobble += 0.1;
+        return b.y > 100;
+    });
+}
+
+function drawBubbles() {
+    bubbles.forEach(b => {
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, b.size, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+        ctx.beginPath();
+        ctx.arc(b.x - b.size * 0.3, b.y - b.size * 0.3, b.size * 0.3, 0, Math.PI * 2);
+        ctx.fill();
+    });
+}
+
+// Thermalbad zeichnen
+function drawThermalBath(x, y, width, height) {
+    // Becken-Rand (Holz)
+    ctx.fillStyle = '#8B4513';
+    ctx.fillRect(x - 10, y - 10, width + 20, height + 20);
+
+    // Wasser
+    const waterGradient = ctx.createLinearGradient(x, y, x, y + height);
+    waterGradient.addColorStop(0, '#4DD0E1');
+    waterGradient.addColorStop(1, '#00838F');
+    ctx.fillStyle = waterGradient;
+    ctx.fillRect(x, y, width, height);
+
+    // Wellen-Effekt
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+    for(let i = 0; i < 5; i++) {
+        const waveY = y + 20 + i * 25;
+        ctx.beginPath();
+        ctx.moveTo(x, waveY);
+        for(let wx = 0; wx <= width; wx += 10) {
+            ctx.lineTo(x + wx, waveY + Math.sin((wx + Date.now() * 0.003 + i * 20) * 0.05) * 5);
+        }
+        ctx.lineTo(x + width, waveY + 10);
+        ctx.lineTo(x, waveY + 10);
+        ctx.fill();
+    }
+
+    // Dampf
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+    for(let i = 0; i < 8; i++) {
+        const steamX = x + 30 + i * 50;
+        const steamY = y - 20 - Math.sin(Date.now() * 0.002 + i) * 15;
+        ctx.beginPath();
+        ctx.arc(steamX, steamY, 15 + Math.sin(Date.now() * 0.003 + i * 2) * 5, 0, Math.PI * 2);
+        ctx.fill();
+    }
+}
+
+// Champagner-Glas zeichnen
+function drawChampagneGlass(x, y, cheers = false) {
+    ctx.save();
+    ctx.translate(x, y);
+    if(cheers) ctx.rotate(Math.sin(Date.now() * 0.005) * 0.1);
+
+    // Stiel
+    ctx.fillStyle = '#C0C0C0';
+    ctx.fillRect(-3, 20, 6, 35);
+
+    // Fuß
+    ctx.beginPath();
+    ctx.ellipse(0, 55, 15, 5, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Kelch
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+    ctx.beginPath();
+    ctx.moveTo(-20, 0);
+    ctx.quadraticCurveTo(-25, -40, -8, -50);
+    ctx.lineTo(8, -50);
+    ctx.quadraticCurveTo(25, -40, 20, 0);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // Champagner
+    ctx.fillStyle = '#F7DC6F';
+    ctx.beginPath();
+    ctx.moveTo(-18, -5);
+    ctx.quadraticCurveTo(-22, -35, -7, -45);
+    ctx.lineTo(7, -45);
+    ctx.quadraticCurveTo(22, -35, 18, -5);
+    ctx.closePath();
+    ctx.fill();
+
+    // Bläschen im Glas
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+    for(let i = 0; i < 5; i++) {
+        const bx = -8 + Math.random() * 16;
+        const by = -10 - Math.random() * 30;
+        ctx.beginPath();
+        ctx.arc(bx, by + Math.sin(Date.now() * 0.01 + i) * 3, 2, 0, Math.PI * 2);
+        ctx.fill();
+    }
+
+    ctx.restore();
+}
+
+// Maus im Wasser zeichnen (nur Kopf sichtbar)
+function drawMausiInWater(x, y, facing, isMale, frame) {
+    ctx.save();
+    ctx.translate(x, y);
+    if(facing < 0) ctx.scale(-1, 1);
+
+    // Kopf
+    ctx.fillStyle = '#D3D3D3';
+    ctx.beginPath();
+    ctx.arc(0, 0, 20, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Ohren
+    ctx.fillStyle = '#FFB6C1';
+    ctx.beginPath();
+    ctx.ellipse(-14, -18, 10, 12, -0.3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(14, -18, 10, 12, 0.3, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Innere Ohren
+    ctx.fillStyle = '#FF69B4';
+    ctx.beginPath();
+    ctx.ellipse(-14, -18, 5, 7, -0.3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(14, -18, 5, 7, 0.3, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Augen (glücklich geschlossen)
+    ctx.strokeStyle = '#000';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(-7, -2, 5, 0, Math.PI);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(7, -2, 5, 0, Math.PI);
+    ctx.stroke();
+
+    // Rosy Cheeks (entspannt)
+    ctx.fillStyle = 'rgba(255, 182, 193, 0.5)';
+    ctx.beginPath();
+    ctx.arc(-12, 5, 6, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(12, 5, 6, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Nase
+    ctx.fillStyle = '#FFB6C1';
+    ctx.beginPath();
+    ctx.arc(0, 8, 5, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Zufriedenes Lächeln
+    ctx.strokeStyle = '#333';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(0, 6, 8, 0.2, Math.PI - 0.2);
+    ctx.stroke();
+
+    // Schleife (weiblich) oder nasses Halstuch (männlich)
+    if(!isMale) {
+        ctx.fillStyle = '#FF69B4';
+        ctx.beginPath();
+        ctx.ellipse(-16, -22, 7, 5, -0.5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.ellipse(-10, -24, 7, 5, 0.5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#FF1493';
+        ctx.beginPath();
+        ctx.arc(-13, -23, 3, 0, Math.PI * 2);
+        ctx.fill();
+    } else {
+        ctx.fillStyle = '#4169E1';
+        ctx.beginPath();
+        ctx.arc(0, -25, 8, Math.PI, 0);
+        ctx.fill();
+    }
+
+    ctx.restore();
+}
+
+// Interaktive Geschenkboxen State
+let giftBoxes = [
+    { opened: false, animation: 0, x: 100, y: 200 },
+    { opened: false, animation: 0, x: 350, y: 200 },
+    { opened: false, animation: 0, x: 600, y: 200 }
+];
+
+function drawGiftBox(x, y, size, opened, animation, isHovered) {
+    ctx.save();
+    ctx.translate(x, y);
+
+    if(!opened) {
+        // Geschlossene Box
+        const scale = isHovered ? 1.1 : 1;
+        const wobble = isHovered ? Math.sin(Date.now() * 0.01) * 3 : 0;
+        ctx.translate(wobble, 0);
+        ctx.scale(scale, scale);
+
+        // Box-Körper
+        ctx.fillStyle = '#FF1493';
+        ctx.shadowColor = isHovered ? '#FFD700' : '#FF69B4';
+        ctx.shadowBlur = isHovered ? 25 : 15;
+        ctx.fillRect(-size/2, -size/2, size, size);
+
+        // Schleife
+        ctx.fillStyle = '#FFD700';
+        ctx.fillRect(-size/2, -5, size, 10);
+        ctx.fillRect(-5, -size/2, 10, size);
+
+        // Schleife oben
+        ctx.beginPath();
+        ctx.ellipse(-15, -size/2 - 10, 15, 10, -0.3, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.ellipse(15, -size/2 - 10, 15, 10, 0.3, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Glitzer
+        if(isHovered) {
+            ctx.fillStyle = '#FFF';
+            for(let i = 0; i < 8; i++) {
+                const sparkleX = (Math.random() - 0.5) * size * 1.5;
+                const sparkleY = (Math.random() - 0.5) * size * 1.5;
+                ctx.beginPath();
+                ctx.arc(sparkleX, sparkleY, 2, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+
+        ctx.shadowBlur = 0;
+    } else {
+        // Öffnungs-Animation
+        const progress = Math.min(animation / 30, 1);
+        const easeOut = 1 - Math.pow(1 - progress, 3);
+
+        // Deckel fliegt weg
+        ctx.save();
+        ctx.translate(0, -size/2 - easeOut * 100);
+        ctx.rotate(easeOut * 0.5);
+        ctx.fillStyle = '#FF1493';
+        ctx.fillRect(-size/2 * (1 - easeOut * 0.5), -10, size * (1 - easeOut * 0.5), 20);
+        ctx.fillStyle = '#FFD700';
+        ctx.fillRect(-size/2 * (1 - easeOut * 0.5), -5, size * (1 - easeOut * 0.5), 10);
+        ctx.restore();
+
+        // Offene Box
+        ctx.fillStyle = '#FF69B4';
+        ctx.fillRect(-size/2, -size/4, size, size/2 + size/4);
+    }
+
+    ctx.restore();
+}
+
+function drawFinale() {
+    ctx.textAlign = 'center';
+
+    const giftData = [
+        { icon: '🌊', title: CONFIG.gifts.therme.title, subtitle: CONFIG.gifts.therme.subtitle, color: '#4DD0E1' },
+        { icon: '⭐', title: CONFIG.gifts.restaurant.title, subtitle: CONFIG.gifts.restaurant.subtitle, color: '#FFD700' },
+        { icon: '🏠', title: CONFIG.gifts.hotel.title, subtitle: CONFIG.gifts.hotel.subtitle, color: '#E1BEE7' }
+    ];
+
+    // Hintergrund für interaktive Phase
+    if(finaleStep < 5) {
+        const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+        gradient.addColorStop(0, '#1a1a3e');
+        gradient.addColorStop(0.5, '#2d1b4e');
+        gradient.addColorStop(1, '#4a2c5e');
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        // Sterne
+        drawStars();
+
+        // Lichterkette
+        for(let i = 0; i < 12; i++) {
+            const colors = ['#FF6B6B', '#FFE66D', '#4ECDC4', '#FF8ED4', '#957FEF'];
+            ctx.fillStyle = colors[i % 5];
+            ctx.shadowColor = colors[i % 5];
+            ctx.shadowBlur = 15;
+            ctx.beginPath();
+            ctx.arc(80 + i * 70, 40 + Math.sin(Date.now() * 0.003 + i) * 5, 6, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        ctx.shadowBlur = 0;
+
+        // Konfetti
+        if(finaleTimer % 5 === 0) {
+            createParticle(Math.random() * canvas.width, 0, 'confetti');
+        }
+        drawParticles();
+        updateParticles();
+    }
+
+    if(finaleStep === 0) {
+        // Intro
+        ctx.fillStyle = '#FFD700';
+        ctx.shadowColor = '#FFD700';
+        ctx.shadowBlur = 20;
+        ctx.font = 'bold 36px Arial';
+        ctx.fillText('🎁 Deine Geschenke warten! 🎁', canvas.width/2, 100);
+        ctx.shadowBlur = 0;
+
+        ctx.fillStyle = '#FFF';
+        ctx.font = '22px Arial';
+        ctx.fillText('Klicke auf jede Box, um dein Geschenk zu enthüllen!', canvas.width/2, 150);
+
+        finaleTimer++;
+        if(finaleTimer > 60) {
+            finaleStep = 1;
+            finaleTimer = 0;
+            giftBoxes = [
+                { opened: false, animation: 0, x: 150, y: 320 },
+                { opened: false, animation: 0, x: 450, y: 320 },
+                { opened: false, animation: 0, x: 750, y: 320 }
+            ];
+        }
+    } else if(finaleStep === 1) {
+        // Interaktive Geschenkboxen
+        ctx.fillStyle = '#FFD700';
+        ctx.shadowColor = '#FFD700';
+        ctx.shadowBlur = 15;
+        ctx.font = 'bold 32px Arial';
+        ctx.fillText('✨ Klicke auf die Geschenke! ✨', canvas.width/2, 80);
+        ctx.shadowBlur = 0;
+
+        let allOpened = true;
+
+        for(let i = 0; i < 3; i++) {
+            const box = giftBoxes[i];
+            const gift = giftData[i];
+            const boxSize = 100;
+            const isHovered = !box.opened &&
+                mouseX > box.x - boxSize/2 && mouseX < box.x + boxSize/2 &&
+                mouseY > box.y - boxSize/2 && mouseY < box.y + boxSize/2;
+
+            // Box zeichnen
+            drawGiftBox(box.x, box.y, boxSize, box.opened, box.animation, isHovered);
+
+            // Klick-Erkennung
+            if(isHovered && mouseClicked && !box.opened) {
+                box.opened = true;
+                playSound('special');
+                createParticle(box.x, box.y - 50, 'confetti');
+                createParticle(box.x, box.y - 50, 'confetti');
+            }
+
+            // Animation updaten
+            if(box.opened && box.animation < 30) {
+                box.animation++;
+            }
+
+            // Geschenk anzeigen wenn geöffnet
+            if(box.opened && box.animation >= 20) {
+                const revealProgress = Math.min((box.animation - 20) / 10, 1);
+
+                // Geschenk-Karte
+                ctx.globalAlpha = revealProgress;
+                ctx.fillStyle = 'rgba(255,255,255,0.95)';
+                ctx.shadowColor = gift.color;
+                ctx.shadowBlur = 20;
+                ctx.fillRect(box.x - 110, box.y + 70, 220, 140);
+                ctx.shadowBlur = 0;
+
+                ctx.font = '48px Arial';
+                ctx.fillText(gift.icon, box.x, box.y + 110);
+
+                ctx.fillStyle = '#333';
+                ctx.font = 'bold 16px Arial';
+                ctx.fillText(gift.title, box.x, box.y + 155);
+
+                ctx.fillStyle = '#666';
+                ctx.font = '12px Arial';
+                ctx.fillText(gift.subtitle, box.x, box.y + 180);
+
+                ctx.globalAlpha = 1;
+            }
+
+            if(!box.opened) allOpened = false;
+        }
+
+        // Weiter-Button wenn alle geöffnet
+        if(allOpened) {
+            finaleTimer++;
+            if(finaleTimer > 90) {
+                ctx.fillStyle = '#FFF';
+                ctx.font = '18px Arial';
+                ctx.fillText('Klicken für die Überraschung... 🎉', canvas.width/2, 550);
+
+                if(mouseClicked) {
+                    finaleStep = 2;
+                    finaleTimer = 0;
+                }
+            }
+        }
+
+    } else if(finaleStep === 2) {
+        // Zusammenfassung
+        ctx.fillStyle = '#FFD700';
+        ctx.shadowColor = '#FFD700';
+        ctx.shadowBlur = 25;
+        ctx.font = 'bold 42px Arial';
+        ctx.fillText('✨ DEIN VERWÖHN-WOCHENENDE ✨', canvas.width/2, 90);
+        ctx.shadowBlur = 0;
+
+        // Alle drei Geschenke nebeneinander
+        for(let i = 0; i < 3; i++) {
+            const gift = giftData[i];
+            const x = 150 + i * 250;
+
+            ctx.fillStyle = 'rgba(255,255,255,0.95)';
+            ctx.shadowColor = gift.color;
+            ctx.shadowBlur = 20;
+            ctx.fillRect(x - 100, 130, 200, 200);
+            ctx.shadowBlur = 0;
+
+            ctx.font = '56px Arial';
+            ctx.fillText(gift.icon, x, 200);
+
+            ctx.fillStyle = '#333';
+            ctx.font = 'bold 18px Arial';
+            ctx.fillText(gift.title, x, 260);
+
+            ctx.fillStyle = '#666';
+            ctx.font = '13px Arial';
+            ctx.fillText(gift.subtitle, x, 290);
+        }
+
+        // Großer Text
+        ctx.fillStyle = '#FFD700';
+        ctx.shadowColor = '#FFD700';
+        ctx.shadowBlur = 20;
+        ctx.font = 'bold 40px Arial';
+        ctx.fillText('🎂 Happy Birthday! 🎂', canvas.width/2, 440);
+        ctx.shadowBlur = 0;
+
+        ctx.fillStyle = '#FFF';
+        ctx.font = '18px Arial';
+        ctx.fillText('Klicken für die Party... 🥂', canvas.width/2, 500);
+
+        finaleTimer++;
+        if(mouseClicked && finaleTimer > 30) {
+            finaleStep = 5;
+            finaleTimer = 0;
+            bubbles = [];
+            playSound('special');
+        }
+    } else if(finaleStep === 5) {
+        // ============================================
+        // 🎉 MÄUSEPARTY IM THERMALBAD MIT CHAMPAGNER! 🎉
+        // ============================================
+
+        // Abend-Hintergrund
+        const bgGradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+        bgGradient.addColorStop(0, '#1a1a3e');
+        bgGradient.addColorStop(0.5, '#2d1b4e');
+        bgGradient.addColorStop(1, '#4a2c5e');
+        ctx.fillStyle = bgGradient;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        // Sterne
+        drawStars();
+
+        // Mond
+        ctx.fillStyle = '#F5F5DC';
+        ctx.shadowColor = '#F5F5DC';
+        ctx.shadowBlur = 40;
+        ctx.beginPath();
+        ctx.arc(780, 80, 45, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+
+        // Lichterkette oben
+        for(let i = 0; i < 12; i++) {
+            const colors = ['#FF6B6B', '#FFE66D', '#4ECDC4', '#FF8ED4', '#957FEF'];
+            ctx.fillStyle = colors[i % 5];
+            ctx.shadowColor = colors[i % 5];
+            ctx.shadowBlur = 15;
+            ctx.beginPath();
+            ctx.arc(80 + i * 70, 50 + Math.sin(Date.now() * 0.003 + i) * 5, 8, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        ctx.shadowBlur = 0;
+
+        // Thermalbad
+        drawThermalBath(200, 300, 500, 200);
+
+        // Blasen erstellen
+        if(finaleTimer % 10 === 0) {
+            createBubble(450, 480);
+        }
+        updateBubbles();
+        drawBubbles();
+
+        // Beide Mäuse im Bad - entspannt und glücklich
+        const bobOffset = Math.sin(Date.now() * 0.003) * 3;
+        drawMausiInWater(350, 380 + bobOffset, 1, false, finaleTimer);
+        drawMausiInWater(550, 385 - bobOffset, -1, true, finaleTimer);
+
+        // Champagner-Gläser
+        drawChampagneGlass(280, 320, true);
+        drawChampagneGlass(620, 325, true);
+
+        // "PROST!" Animation
+        if(finaleTimer % 120 < 60) {
+            ctx.fillStyle = '#FFD700';
+            ctx.shadowColor = '#FFD700';
+            ctx.shadowBlur = 20;
+            ctx.font = 'bold 36px Arial';
+            ctx.fillText('🥂 PROST! 🥂', canvas.width/2, 250);
+            ctx.shadowBlur = 0;
+        }
+
+        // Konfetti
+        if(finaleTimer % 5 === 0) {
+            createParticle(Math.random() * canvas.width, 0, 'confetti');
+        }
+        drawParticles();
+        updateParticles();
+
+        // Herzen zwischen den Mäusen
+        if(finaleTimer % 30 === 0) {
+            createParticle(450, 360, 'heart');
+        }
+
+        // Text unten
+        ctx.fillStyle = '#FFD700';
+        ctx.shadowColor = '#FFD700';
+        ctx.shadowBlur = 15;
+        ctx.font = 'bold 42px Arial';
+        ctx.fillText('🎂 Happy Birthday, ' + CONFIG.birthdayName + '! 🎂', canvas.width/2, 540);
+        ctx.shadowBlur = 0;
+
+        ctx.fillStyle = '#FF69B4';
+        ctx.font = '24px Arial';
+        ctx.fillText(CONFIG.finalMessage + ' ❤️', canvas.width/2, 575);
+
+        // Nochmal spielen Button
+        const btnX = canvas.width/2 - 100;
+        const btnY = 590;
+        const hovered = isMouseOver(btnX, btnY - 10, 200, 40);
+
+        if(finaleTimer > 120) {
+            drawButton(btnX, btnY - 10, 200, 40, 'Nochmal spielen', hovered);
+            if(hovered && mouseClicked) {
+                resetGame();
+            }
+        }
+
+        finaleTimer++;
+    }
+
+    ctx.textAlign = 'left';
+}
+
+// ============================================
+// SPIEL LOGIK
+// ============================================
+function startLevel(level) {
+    currentLevel = level;
+    currentZone = 0;
+    currentState = level === 1 ? GameState.PLAYING_L1 : GameState.PLAYING_L2;
+
+    player.x = 100;
+    player.y = 400;
+    player.vx = 0;
+    player.vy = 0;
+    player.hits = 0;
+    player.invincible = 0;
+
+    companion.x = 60;
+    companion.y = 400;
+
+    camera.x = 0;
+
+    cutsceneStep = 0;
+    finaleStep = 0;
+    finaleTimer = 0;
+
+    loadZone(level, 0);
+    // Level 2 startet ohne Postkarte - direkt ins Spiel
+    if(level === 1) {
+        showPostcard(0);
+    }
+}
+
+function resetGame() {
+    currentState = GameState.MENU;
+    currentLevel = 1;
+    currentZone = 0;
+    cheeseCount = 0;
+    souvenirs.fill(false);
+    goldenGifts.fill(false);
+    player.x = 100;
+    player.y = 400;
+    particles = [];
+}
+
+let hasKey = false;
+let cageOpen = false;
+
+function updateGame() {
+    const isL2 = currentLevel === 2;
+
+    // Input (Tastatur + Touch)
+    let moveX = 0;
+    if(keys['ArrowLeft'] || keys['KeyA'] || touchLeft) moveX = -1;
+    if(keys['ArrowRight'] || keys['KeyD'] || touchRight) moveX = 1;
+
+    player.vx = moveX * player.speed;
+    if(keys['ShiftLeft']) player.vx *= 1.5;
+
+    // Springen (Tastatur + Touch)
+    if((keys['ArrowUp'] || keys['KeyW'] || keys['Space'] || touchJump) && (player.grounded || player.coyoteTime > 0)) {
+        player.vy = player.jumpForce;
+        player.grounded = false;
+        player.coyoteTime = 0;
+        playSound('jump');
+    }
+
+    // Physik
+    player.vy += player.gravity;
+    player.x += player.vx;
+    player.y += player.vy;
+
+    // Blickrichtung
+    if(player.vx !== 0) player.facing = player.vx > 0 ? 1 : -1;
+
+    // Animation Frame
+    if(player.vx !== 0) {
+        player.frameTimer++;
+        if(player.frameTimer > 5) {
+            player.frame++;
+            player.frameTimer = 0;
+        }
+    }
+
+    // Coyote Time
+    if(player.grounded) {
+        player.coyoteTime = 6;
+    } else {
+        player.coyoteTime--;
+    }
+
+    // Invincibility Timer
+    if(player.invincible > 0) player.invincible--;
+
+    // Kollision mit Plattformen
+    player.grounded = false;
+    platforms.forEach(p => {
+        // Simple AABB
+        if(player.x + player.width/2 > p.x &&
+           player.x - player.width/2 < p.x + p.w &&
+           player.y + player.height/2 > p.y &&
+           player.y - player.height/2 < p.y + p.h) {
+
+            // Von oben
+            if(player.vy > 0 && player.y - player.height/2 < p.y) {
+                player.y = p.y - player.height/2;
+                player.vy = 0;
+                player.grounded = true;
+
+                // Spezielle Plattformen
+                if(p.type === 'shell' || p.type === 'bed') {
+                    player.vy = player.jumpForce * 1.3;
+                    playSound('jump');
+                }
+                if(p.type === 'geyser') {
+                    player.vy = player.jumpForce * 1.5;
+                    playSound('special');
+                }
+            }
+        }
+    });
+
+    // Bodenbegrenzung
+    if(player.y > 520) {
+        player.y = 520;
+        player.vy = 0;
+        player.grounded = true;
+    }
+
+    // Kamera
+    camera.targetX = player.x - canvas.width / 3;
+    camera.x += (camera.targetX - camera.x) * camera.smoothing;
+    if(camera.x < 0) camera.x = 0;
+
+    // Zonen-Wechsel
+    const newZone = Math.floor(player.x / ZONE_WIDTH);
+    if(newZone !== currentZone && newZone >= 0) {
+        const maxZone = currentLevel === 1 ? 5 : 3;
+        if(newZone <= maxZone) {
+            currentZone = newZone;
+            loadZone(currentLevel, newZone);
+            if(newZone > 0) showPostcard(newZone);
+        }
+    }
+
+    // Collectibles
+    collectibles.forEach(c => {
+        if(c.collected) return;
+
+        const dx = player.x - c.x;
+        const dy = player.y - c.y;
+        const dist = Math.sqrt(dx*dx + dy*dy);
+
+        if(dist < 30) {
+            c.collected = true;
+            createParticle(c.x, c.y, 'sparkle');
+
+            if(c.type === 'cheese') {
+                cheeseCount++;
+                playSound('collect');
+            } else if(c.type === 'souvenir') {
+                souvenirs[c.souvenirId] = true;
+                playSound('special');
+            } else if(c.type === 'gift') {
+                goldenGifts[c.giftId] = true;
+                playSound('special');
+                createParticle(c.x, c.y, 'confetti');
+            } else if(c.type === 'key') {
+                hasKey = true;
+                playSound('special');
+            }
+        }
+    });
+
+    // Hindernisse
+    obstacles.forEach(o => {
+        // Bewegung
+        o.x += o.speed * o.dir;
+        if(o.x <= o.startX || o.x >= o.endX) o.dir *= -1;
+
+        // Kollision mit Spieler
+        if(player.invincible <= 0) {
+            const dx = player.x - o.x;
+            const dy = player.y - o.y;
+
+            if(Math.abs(dx) < o.w/2 + player.width/2 && Math.abs(dy) < o.h/2 + player.height/2) {
+                // Von oben (Boss besiegen - TukTuk oder Riesenkrebs)
+                if((o.type === 'tuktuk' || o.type === 'bosscrab') && player.vy > 0 && dy < 0) {
+                    o.hp--;
+                    player.vy = player.jumpForce * 0.7;
+                    playSound('special');
+                    if(o.hp <= 0) {
+                        o.x = -1000; // Entfernen
+                        createParticle(o.x, o.y, 'confetti');
+                    }
+                } else {
+                    // Schaden nehmen
+                    player.hits++;
+                    player.invincible = 90;
+                    player.vy = player.jumpForce * 0.5;
+                    player.vx = -player.facing * 5;
+                    playSound('hit');
+
+                    // Game Over bei 10 Treffern
+                    if(player.hits >= player.maxHits) {
+                        currentState = GameState.GAME_OVER;
+                        gameOverTimer = 0;
+                    }
+                }
+            }
+        }
+    });
+
+    // Level 1 Finale: Käfig
+    if(currentLevel === 1 && currentZone === 5) {
+        const cageX = 5 * ZONE_WIDTH + 1500;
+        if(hasKey && Math.abs(player.x - cageX) < 100) {
+            cageOpen = true;
+            currentState = GameState.CUTSCENE_L1;
+            cutsceneStep = 0;
+        }
+    }
+
+    // Level 2 Finale
+    if(currentLevel === 2 && goldenGifts.every(g => g)) {
+        if(currentZone === 3 && player.x > 3 * ZONE_WIDTH + 1000) {
+            currentState = GameState.FINALE;
+            finaleStep = 0;
+            finaleTimer = 0;
+        }
+    }
+
+    // Companion (Level 2)
+    if(isL2) {
+        const targetX = player.x - 50;
+        companion.x += (targetX - companion.x) * 0.05;
+        companion.y = player.y;
+        companion.facing = player.facing;
+        companion.frame = player.frame;
+    }
+}
+
+function renderGame() {
+    const zones = currentLevel === 1 ? zones_L1 : zones_L2;
+    const zoneColors = zones[currentZone]?.colors || zones[0].colors;
+
+    // Hintergrund
+    drawBackground(currentZone, currentLevel);
+
+    // Plattformen
+    platforms.forEach(p => drawPlatform(p, zoneColors));
+
+    // Collectibles
+    collectibles.forEach(c => {
+        if(c.collected) return;
+        const x = c.x - camera.x;
+        const y = c.y;
+
+        if(c.type === 'cheese') drawCheese(x, y);
+        else if(c.type === 'souvenir') drawSouvenir(x, y, c.souvenirId);
+        else if(c.type === 'gift') drawGoldenGift(x, y, c.giftId);
+        else if(c.type === 'key') drawKey(x, y);
+    });
+
+    // Hindernisse
+    obstacles.forEach(o => drawObstacle(o));
+
+    // Käfig (Level 1 Finale)
+    if(currentLevel === 1 && currentZone === 5) {
+        const cageX = 5 * ZONE_WIDTH + 1500 - camera.x;
+        drawCage(cageX, 480, cageOpen);
+        if(!cageOpen) {
+            drawMausi(cageX, 500, 1, true, Date.now() * 0.01);
+        }
+    }
+
+    // Companion (Level 2)
+    if(currentLevel === 2) {
+        drawMausi(companion.x - camera.x, companion.y, companion.facing, true, companion.frame);
+    }
+
+    // Spieler
+    const alpha = player.invincible > 0 && Math.floor(player.invincible / 5) % 2 ? 0.5 : 1;
+    ctx.globalAlpha = alpha;
+    drawMausi(player.x - camera.x, player.y, player.facing, false, player.frame, player.hasSnorkel);
+    ctx.globalAlpha = 1;
+
+    // Partikel
+    drawParticles();
+    updateParticles();
+
+    // HUD
+    drawHUD();
+
+    // Touch Controls (Mobile)
+    drawTouchControls();
+}
+
+// ============================================
+// GAME LOOP
+// ============================================
+function gameLoop() {
+    // Clear
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    switch(currentState) {
+        case GameState.MENU:
+            drawMenu();
+            break;
+
+        case GameState.PLAYING_L1:
+        case GameState.PLAYING_L2:
+            updateGame();
+            renderGame();
+            break;
+
+        case GameState.POSTCARD:
+            renderGame();
+            drawPostcard();
+            break;
+
+        case GameState.CUTSCENE_L1:
+            drawCutsceneL1();
+            break;
+
+        case 'birthday':
+            drawBirthdayScreen();
+            break;
+
+        case GameState.FINALE:
+            drawFinale();
+            break;
+
+        case GameState.GAME_OVER:
+            drawGameOver();
+            break;
+    }
+
+    // Reset mouse click
+    mouseClicked = false;
+
+    requestAnimationFrame(gameLoop);
+}
+
+// Start!
+gameLoop();
+
+</script>
+</body>
+</html>
