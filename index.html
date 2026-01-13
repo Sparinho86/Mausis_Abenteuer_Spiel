@@ -353,15 +353,46 @@ function drawHeart(x, y, size) {
 }
 
 // ============================================
-// AUDIO (Simple WebAudio)
+// AUDIO (iOS-kompatibel)
 // ============================================
 let audioCtx = null;
+let audioUnlocked = false;
+
 function initAudio() {
-    if(!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if(!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    // iOS: AudioContext muss bei User-Interaktion resumed werden
+    if(audioCtx.state === 'suspended') {
+        audioCtx.resume();
+    }
+    audioUnlocked = true;
 }
 
+// iOS Audio Unlock bei erster Interaktion
+function unlockAudio() {
+    if(audioUnlocked) return;
+    initAudio();
+    // Stiller Sound um iOS Audio zu aktivieren
+    const buffer = audioCtx.createBuffer(1, 1, 22050);
+    const source = audioCtx.createBufferSource();
+    source.buffer = buffer;
+    source.connect(audioCtx.destination);
+    source.start(0);
+    audioUnlocked = true;
+}
+
+// Audio bei jeder Interaktion entsperren (iOS)
+document.addEventListener('touchstart', unlockAudio, { once: true });
+document.addEventListener('touchend', unlockAudio, { once: true });
+document.addEventListener('click', unlockAudio, { once: true });
+
 function playSound(type) {
+    if(!audioCtx || audioCtx.state === 'suspended') {
+        initAudio();
+    }
     if(!audioCtx) return;
+
     const osc = audioCtx.createOscillator();
     const gain = audioCtx.createGain();
     osc.connect(gain);
@@ -371,6 +402,7 @@ function playSound(type) {
         jump: { freq: 300, duration: 0.1, type: 'square' },
         collect: { freq: 600, duration: 0.15, type: 'sine' },
         special: { freq: 800, duration: 0.3, type: 'sine' },
+        hit: { freq: 150, duration: 0.2, type: 'sawtooth' },
         reveal: { freq: 440, duration: 0.5, type: 'triangle' }
     };
 
@@ -2142,10 +2174,8 @@ let zoneOverlayZone = -1;
 const ZONE_OVERLAY_DURATION = 120; // 2 Sekunden
 
 function showPostcard(zone) {
-    // Elegantes Overlay statt pausierender Postkarte
-    zoneOverlayZone = zone;
-    zoneOverlayTimer = ZONE_OVERLAY_DURATION;
-    // Spiel läuft weiter - kein GameState-Wechsel!
+    // Keine Unterbrechung mehr - Zone wird nur im HUD angezeigt
+    // (Die Zone-Info ist bereits oben rechts im HUD sichtbar)
 }
 
 function drawZoneOverlay() {
