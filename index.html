@@ -2135,62 +2135,59 @@ function drawGameOver() {
 }
 
 // ============================================
-// POSTKARTEN
+// ZONEN-OVERLAY (eleganter Einblend-Effekt)
 // ============================================
-let postcardTimer = 0;
-let postcardZone = -1;
+let zoneOverlayTimer = 0;
+let zoneOverlayZone = -1;
+const ZONE_OVERLAY_DURATION = 120; // 2 Sekunden
 
 function showPostcard(zone) {
-    postcardZone = zone;
-    postcardTimer = 180; // 3 Sekunden
-    currentState = GameState.POSTCARD;
+    // Elegantes Overlay statt pausierender Postkarte
+    zoneOverlayZone = zone;
+    zoneOverlayTimer = ZONE_OVERLAY_DURATION;
+    // Spiel läuft weiter - kein GameState-Wechsel!
 }
 
-function drawPostcard() {
+function drawZoneOverlay() {
+    if(zoneOverlayTimer <= 0) return;
+
     const zones = currentLevel === 1 ? zones_L1 : zones_L2;
-    const z = zones[postcardZone];
+    const z = zones[zoneOverlayZone];
+    if(!z) return;
 
-    // Hintergrund abdunkeln
-    ctx.fillStyle = 'rgba(0,0,0,0.7)';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    // Berechne Fade (0-1)
+    const fadeIn = Math.min(1, (ZONE_OVERLAY_DURATION - zoneOverlayTimer) / 20);
+    const fadeOut = Math.min(1, zoneOverlayTimer / 30);
+    const alpha = Math.min(fadeIn, fadeOut);
 
-    // Postkarte
-    ctx.fillStyle = '#FFF8DC';
-    ctx.shadowColor = '#000';
-    ctx.shadowBlur = 20;
-    ctx.fillRect(canvas.width/2 - 250, canvas.height/2 - 120, 500, 240);
-    ctx.shadowBlur = 0;
+    ctx.save();
+    ctx.globalAlpha = alpha;
 
-    // Briefmarke
-    ctx.fillStyle = '#FF6347';
-    ctx.fillRect(canvas.width/2 + 170, canvas.height/2 - 100, 60, 50);
-    ctx.fillStyle = '#FFF';
-    ctx.font = '12px Arial';
-    ctx.fillText('VIETNAM', canvas.width/2 + 175, canvas.height/2 - 60);
+    // Eleganter Banner oben
+    const gradient = ctx.createLinearGradient(0, 60, 0, 160);
+    gradient.addColorStop(0, 'rgba(0,0,0,0.8)');
+    gradient.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 60, canvas.width, 100);
 
-    // Text
-    ctx.fillStyle = '#333';
-    ctx.font = 'bold 32px Georgia';
+    // Zone-Name mit Glow
     ctx.textAlign = 'center';
-    ctx.fillText('📸 ' + z.name + ' 📸', canvas.width/2, canvas.height/2 - 40);
+    ctx.fillStyle = '#FFD700';
+    ctx.shadowColor = '#FFD700';
+    ctx.shadowBlur = 20;
+    ctx.font = 'bold 36px Georgia';
+    ctx.fillText('📍 ' + z.name, canvas.width/2, 110);
 
-    ctx.font = '20px Georgia';
-    ctx.fillStyle = '#666';
-    ctx.fillText('"' + z.subtitle + '"', canvas.width/2, canvas.height/2 + 20);
-
-    ctx.font = '16px Arial';
-    ctx.fillStyle = '#999';
-    ctx.fillText('Weiter mit beliebiger Taste...', canvas.width/2, canvas.height/2 + 80);
+    // Subtitle
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#FFF';
+    ctx.font = 'italic 18px Georgia';
+    ctx.fillText(z.subtitle, canvas.width/2, 145);
 
     ctx.textAlign = 'left';
+    ctx.restore();
 
-    postcardTimer--;
-    if(postcardTimer <= 0 || Object.values(keys).some(k => k)) {
-        currentState = currentLevel === 1 ? GameState.PLAYING_L1 : GameState.PLAYING_L2;
-        postcardZone = -1;
-        // Reset keys
-        Object.keys(keys).forEach(k => keys[k] = false);
-    }
+    zoneOverlayTimer--;
 }
 
 // ============================================
@@ -3229,11 +3226,12 @@ function gameLoop() {
         case GameState.PLAYING_L2:
             updateGame();
             renderGame();
+            drawZoneOverlay(); // Elegantes Einblende-Overlay
             break;
 
         case GameState.POSTCARD:
-            renderGame();
-            drawPostcard();
+            // Fallback: direkt zum Spiel weiterleiten
+            currentState = currentLevel === 1 ? GameState.PLAYING_L1 : GameState.PLAYING_L2;
             break;
 
         case GameState.CUTSCENE_L1:
