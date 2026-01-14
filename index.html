@@ -405,6 +405,11 @@ function setupAudioUnlock() {
 // Setup nach Canvas-Initialisierung
 setTimeout(setupAudioUnlock, 100);
 
+// Alias für Kompatibilität
+function initAudio() {
+    unlockAudioiOS();
+}
+
 function playSound(type) {
     // Versuche Audio zu entsperren
     unlockAudioiOS();
