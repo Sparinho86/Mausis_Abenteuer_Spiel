@@ -353,67 +353,87 @@ function drawHeart(x, y, size) {
 }
 
 // ============================================
-// AUDIO (iOS-kompatibel)
+// AUDIO (iOS Safari kompatibel)
 // ============================================
 let audioCtx = null;
 let audioUnlocked = false;
 
-function initAudio() {
+// iOS Audio Unlock - muss bei JEDER Touch-Interaktion versucht werden
+function unlockAudioiOS() {
+    // AudioContext erstellen falls nicht vorhanden
     if(!audioCtx) {
-        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        try {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        } catch(e) {
+            console.log('Audio nicht unterstützt');
+            return;
+        }
     }
-    // iOS: AudioContext muss bei User-Interaktion resumed werden
+
+    // iOS: AudioContext resumed werden bei User-Geste
     if(audioCtx.state === 'suspended') {
-        audioCtx.resume();
+        audioCtx.resume().then(() => {
+            audioUnlocked = true;
+        }).catch(() => {});
     }
-    audioUnlocked = true;
+
+    // Stiller Oszillator um Audio zu aktivieren
+    if(!audioUnlocked && audioCtx.state === 'running') {
+        try {
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            gain.gain.value = 0; // Komplett still
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start(0);
+            osc.stop(audioCtx.currentTime + 0.001);
+            audioUnlocked = true;
+        } catch(e) {}
+    }
 }
 
-// iOS Audio Unlock bei erster Interaktion
-function unlockAudio() {
-    if(audioUnlocked) return;
-    initAudio();
-    // Stiller Sound um iOS Audio zu aktivieren
-    const buffer = audioCtx.createBuffer(1, 1, 22050);
-    const source = audioCtx.createBufferSource();
-    source.buffer = buffer;
-    source.connect(audioCtx.destination);
-    source.start(0);
-    audioUnlocked = true;
+// Audio bei JEDER Interaktion entsperren versuchen (iOS ist sehr streng)
+function setupAudioUnlock() {
+    const unlockEvents = ['touchstart', 'touchend', 'mousedown', 'click'];
+
+    unlockEvents.forEach(event => {
+        document.addEventListener(event, unlockAudioiOS, { passive: true });
+        canvas.addEventListener(event, unlockAudioiOS, { passive: true });
+    });
 }
 
-// Audio bei jeder Interaktion entsperren (iOS)
-document.addEventListener('touchstart', unlockAudio, { once: true });
-document.addEventListener('touchend', unlockAudio, { once: true });
-document.addEventListener('click', unlockAudio, { once: true });
+// Setup nach Canvas-Initialisierung
+setTimeout(setupAudioUnlock, 100);
 
 function playSound(type) {
-    if(!audioCtx || audioCtx.state === 'suspended') {
-        initAudio();
-    }
-    if(!audioCtx) return;
+    // Versuche Audio zu entsperren
+    unlockAudioiOS();
 
-    const osc = audioCtx.createOscillator();
-    const gain = audioCtx.createGain();
-    osc.connect(gain);
-    gain.connect(audioCtx.destination);
+    if(!audioCtx || audioCtx.state !== 'running') return;
 
-    const sounds = {
-        jump: { freq: 300, duration: 0.1, type: 'square' },
-        collect: { freq: 600, duration: 0.15, type: 'sine' },
-        special: { freq: 800, duration: 0.3, type: 'sine' },
-        hit: { freq: 150, duration: 0.2, type: 'sawtooth' },
-        reveal: { freq: 440, duration: 0.5, type: 'triangle' }
-    };
+    try {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
 
-    const s = sounds[type] || sounds.collect;
-    osc.type = s.type;
-    osc.frequency.setValueAtTime(s.freq, audioCtx.currentTime);
-    osc.frequency.exponentialRampToValueAtTime(s.freq * 1.5, audioCtx.currentTime + s.duration);
-    gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + s.duration);
-    osc.start();
-    osc.stop(audioCtx.currentTime + s.duration);
+        const sounds = {
+            jump: { freq: 300, duration: 0.1, type: 'square' },
+            collect: { freq: 600, duration: 0.15, type: 'sine' },
+            special: { freq: 800, duration: 0.3, type: 'sine' },
+            hit: { freq: 150, duration: 0.2, type: 'sawtooth' },
+            reveal: { freq: 440, duration: 0.5, type: 'triangle' }
+        };
+
+        const s = sounds[type] || sounds.collect;
+        osc.type = s.type;
+        osc.frequency.setValueAtTime(s.freq, audioCtx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(s.freq * 1.5, audioCtx.currentTime + s.duration);
+        gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + s.duration);
+        osc.start();
+        osc.stop(audioCtx.currentTime + s.duration);
+    } catch(e) {}
 }
 
 // ============================================
